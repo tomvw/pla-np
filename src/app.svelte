@@ -50,12 +50,47 @@
       let newTracks = Array.from(xml.querySelectorAll('Track')).map(track => {
         const player = track.querySelector('Player');
         const user = track.querySelector('User');
+        const mediainfo = track.querySelector('Part');
+
+
+        // Locate Media and the audio Stream (streamType=2) under Part when available
+        const mediaElem = track.querySelector('Media');
+        const audioStream = (mediainfo && mediainfo.querySelector('Stream[streamType="2"]'))
+          || (mediainfo && mediainfo.querySelector('Stream'))
+          || track.querySelector('Stream');
 
         const trackArtist = (track.getAttribute('originalTitle') || track.getAttribute('grandparentTitle') || '').trim();
         const albumArtistRaw = (track.getAttribute('grandparentTitle') || '').trim();
-        const albumArtist = (albumArtistRaw && albumArtistRaw.toLowerCase() !== 'various artists' && albumArtistRaw !== trackArtist)
+        const albumArtist = (albumArtistRaw && albumArtistRaw.toLowerCase() !== 'various artists' && albumArtistRaw.toLowerCase() !== trackArtist.toLowerCase())
           ? albumArtistRaw
           : '';
+
+        // Prefer attributes from the audio Stream, then Media, then Part
+        const codecRaw = (audioStream && (audioStream.getAttribute('codec') || audioStream.getAttribute('audioCodec')))
+          || (mediaElem && mediaElem.getAttribute('audioCodec'))
+          || (mediainfo && mediainfo.getAttribute('container'))
+          || '';
+
+        const samplingRateAttr = (audioStream && audioStream.getAttribute('samplingRate'))
+          || (mediaElem && mediaElem.getAttribute('samplingRate'))
+          || '';
+        const samplingRateRaw = samplingRateAttr ? Number(samplingRateAttr) : NaN;
+        let samplingRateKHz = '';
+        if (!isNaN(samplingRateRaw) && samplingRateRaw > 0) {
+          const val = Math.round((samplingRateRaw / 1000) * 10) / 10; // rounded to 0.1 kHz
+          samplingRateKHz = (val % 1 === 0) ? String(val.toFixed(0)) : String(val.toFixed(1));
+        }
+
+        const bitDepthAttr = (audioStream && audioStream.getAttribute('bitDepth'))
+          || (mediaElem && mediaElem.getAttribute('bitDepth'))
+          || '';
+
+        const bitrateAttr = (audioStream && audioStream.getAttribute('bitrate'))
+          || (mediaElem && mediaElem.getAttribute('bitrate'))
+          || (mediainfo && mediainfo.getAttribute('bitrate'))
+          || '';
+        const bitrateNum = bitrateAttr ? Number(bitrateAttr) : NaN;
+        const bitrateKbps = !isNaN(bitrateNum) && bitrateNum > 0 ? Math.round(bitrateNum) : '';
 
         return {
           sessionKey: track.getAttribute('sessionKey'),
@@ -72,7 +107,11 @@
           state: player?.getAttribute('state'),
           player: player?.getAttribute('title'),
           product: player?.getAttribute('product'),
-          user: user?.getAttribute('title')
+          user: user?.getAttribute('title'),
+          codec: codecRaw ? codecRaw.toUpperCase() : '',
+          bitDepth: bitDepthAttr,
+          samplingRate: samplingRateKHz,
+          bitrate: bitrateKbps
         };
       });
 
@@ -165,9 +204,46 @@
 
   const activeSession = derived([sessions, activeIndex], ([$sessions, $activeIndex]) => $sessions[$activeIndex]);
 
+  // Track active changes so we can animate in-place content updates
+  let prevActiveGuid = null;
+  let prevActiveIndex = null;
+  let contentChanging = false;
+  let _contentChangeTimer = null;
+
+  $: if ($activeSession !== undefined) {
+    // When the active index stays the same but guid changes, it's a new song
+    if (prevActiveIndex !== null && $activeIndex === prevActiveIndex && prevActiveGuid && $activeSession && $activeSession.guid !== prevActiveGuid) {
+      contentChanging = true;
+      if (_contentChangeTimer) clearTimeout(_contentChangeTimer);
+      _contentChangeTimer = setTimeout(() => {
+        contentChanging = false;
+        _contentChangeTimer = null;
+      }, 520);
+    }
+    prevActiveGuid = $activeSession ? $activeSession.guid : null;
+    prevActiveIndex = $activeIndex;
+  }
+
   const format = ms => {
     const s = Math.floor(ms / 1000);
     return `${Math.floor(s / 60)}:${String(s % 60).padStart(2,'0')}`;
+  };
+
+  // Format media info string: show codec, samplingRate (kHz) and bitDepth.
+  // Only include the '/' separator between samplingRate and bitDepth when both exist.
+  const formatMediaInfo = s => {
+    if (!s) return '';
+    const parts = [];
+    if (s.codec) parts.push(s.codec);
+    const audioParts = [];
+    if (s.samplingRate) audioParts.push(`${s.samplingRate}kHz`);
+    if (s.bitDepth) audioParts.push(`${s.bitDepth}bit`);
+    if (s.bitrate) {
+      // show bitrate after bitDepth when present, otherwise after samplingRate
+      audioParts.push(`${s.bitrate}kbps`);
+    }
+    if (audioParts.length) parts.push(audioParts.join(' / '));
+    return parts.join(' — ');
   };
 
   // Slower marquee with pause
@@ -180,48 +256,116 @@
     span.style.willChange = 'transform';
 
     let offset = 0;
-    let frame;
+    let frame = null;
     let containerWidth = node.clientWidth;
     let textWidth = span.scrollWidth;
-    let lastTime = performance.now();
+    let lastTime = 0;
     let paused = true;
+    let pauseTimer = null;
+
+    const slide = node.closest('.fade-slide');
+    const isActive = () => {
+      if (!slide) return true;
+      return slide.classList.contains('visible');
+    };
+
+    function startLoop() {
+      if (frame) return;
+      lastTime = performance.now();
+      frame = requestAnimationFrame(step);
+    }
+
+    function stopLoop() {
+      if (!frame) return;
+      cancelAnimationFrame(frame);
+      frame = null;
+    }
 
     function step(time) {
+      frame = null;
+      if (!isActive()) {
+        // not visible — reset transform and pause
+        span.style.transform = '';
+        paused = true;
+        if (pauseTimer) { clearTimeout(pauseTimer); pauseTimer = null; }
+        // keep checking until visible
+        frame = requestAnimationFrame(step);
+        return;
+      }
+
       const delta = time - lastTime;
       lastTime = time;
 
+      // recalc sizes if needed
+      containerWidth = node.clientWidth;
+      textWidth = span.scrollWidth;
+
       if (textWidth > containerWidth) {
         if (paused) {
-          setTimeout(() => { paused = false; }, pauseDuration);
+          if (!pauseTimer) pauseTimer = setTimeout(() => { paused = false; pauseTimer = null; }, pauseDuration);
         } else {
           const speed = baseSpeed * (containerWidth / textWidth);
           offset -= speed * (delta / 1000); // pixels/sec
           if (offset <= -textWidth) {
             offset = 0;
             paused = true;
+            if (pauseTimer) clearTimeout(pauseTimer);
+            pauseTimer = setTimeout(() => { paused = false; pauseTimer = null; }, pauseDuration);
             lastTime = performance.now();
           }
           span.style.transform = `translateX(${offset}px)`;
         }
+      } else {
+        // text fits — ensure reset
+        offset = 0;
+        span.style.transform = '';
+        paused = true;
+        if (pauseTimer) { clearTimeout(pauseTimer); pauseTimer = null; }
       }
 
       frame = requestAnimationFrame(step);
     }
 
-    step(performance.now());
+    // Start the loop — it will immediately pause if not active
+    startLoop();
 
     const resizeObserver = new ResizeObserver(() => {
       containerWidth = node.clientWidth;
       textWidth = span.scrollWidth;
       if (offset <= -textWidth) offset = 0;
     });
-
     resizeObserver.observe(node);
+
+    // Observe visibility changes by watching the slide's class attribute
+    let mo = null;
+    if (slide) {
+      mo = new MutationObserver(() => {
+        // when visibility changes, (re)start loop so it can pick up new active state
+        if (isActive()) {
+          // ensure sizes are up-to-date
+          containerWidth = node.clientWidth;
+          textWidth = span.scrollWidth;
+          if (paused) {
+            // restart after pause to show the initial paused state then scroll
+            if (!pauseTimer) pauseTimer = setTimeout(() => { paused = false; pauseTimer = null; }, pauseDuration);
+          }
+        } else {
+          // reset immediately when hidden
+          offset = 0;
+          span.style.transform = '';
+          paused = true;
+          if (pauseTimer) { clearTimeout(pauseTimer); pauseTimer = null; }
+        }
+      });
+      mo.observe(slide, { attributes: true, attributeFilter: ['class'] });
+    }
 
     return {
       destroy() {
-        cancelAnimationFrame(frame);
+        stopLoop();
         resizeObserver.disconnect();
+        if (mo) mo.disconnect();
+        if (pauseTimer) clearTimeout(pauseTimer);
         span.style.transform = '';
       }
     };
@@ -253,8 +397,11 @@
 
 <style>
 :root { --main-font: 'Inter', 'Helvetica Neue', Helvetica, Arial, sans-serif; }
+:global(:root) { --main-font: 'Fira Sans', 'Inter', 'Helvetica Neue', Helvetica, Arial, sans-serif; --max-content-width: 1400px; }
 
-.fade-wrapper { position: relative; width: 100%; height: 100vh; }
+:global(body) { font-family: var(--main-font); }
+
+.fade-wrapper { position: relative; width: 100%; height: 100vh; display: flex; justify-content: center; align-items: center; }
 .fade-slide { position: absolute; inset: 0; opacity: 0; transition: opacity 1s ease; }
 .fade-slide.visible { opacity: 1; }
 
@@ -267,13 +414,15 @@
   padding: 1.5rem 2rem;
   color: white;
   position: relative;
+  max-width: var(--max-content-width);
+  margin: 0 auto;
 }
 
-.art-container { min-width: 0; }
+.art-container { min-width: 0; display:flex; align-items:center; justify-content:center; }
 .art { width: clamp(240px, 42vh, 320px); aspect-ratio: 1/1; object-fit: cover; border-radius: 18px; box-shadow: 0 20px 60px rgba(0,0,0,0.6); }
 
 .info { min-width: 0; }
-.title, .artist, .album { white-space: nowrap; overflow: hidden; position: relative; }
+.title, .artist, .album { white-space: nowrap; overflow: hidden; position: relative; text-overflow: ellipsis; }
 .title { font-size: clamp(1.4rem, 3.5vw, 2.2rem); padding-bottom: 5px; }
 .artist { font-size: clamp(1.1rem, 3vw, 1.6rem); opacity: 0.85; padding-bottom: 5px; }
 .album { font-size: clamp(0.95rem, 2.5vw, 1.2rem); opacity: 0.6; padding-bottom: 5px;}
@@ -281,6 +430,7 @@
 progress { width: 100%; height: 8px; margin-top: 0.75rem; }
 .time { margin-top: 0.25rem; font-size: 0.85rem; opacity: 0.7; }
 .client { margin-top: 0.5rem; font-size: 0.9rem; opacity: 0.7; }
+.mediainfo { margin-top: 0.5rem; font-size: 0.9rem; opacity: 0.7; }
 
 .bg {
   position: fixed;
@@ -292,7 +442,56 @@ progress { width: 100%; height: 8px; margin-top: 0.75rem; }
   z-index: -1;
 }
 
+/* In-place content change (same session, new song) */
+.fade-slide.content-changing .bg { transition: opacity .45s ease; opacity: 0; }
+.player.content-changing .art,
+.player.content-changing .info { transition: opacity .45s ease, transform .45s ease; opacity: 0; transform: translateY(6px); }
+.player .art, .player .info { transition: opacity .45s ease, transform .45s ease; opacity: 1; transform: none; }
+
 .idle { color: white; display: flex; align-items: center; justify-content: center; height: 100vh; }
+
+/* Larger screens: more generous spacing and art */
+@media (min-width: 1200px) {
+  .player { gap: 2.5rem; padding: 2.5rem 4rem; }
+  .art { width: clamp(320px, 50vh, 520px); border-radius: 20px; box-shadow: 0 30px 80px rgba(0,0,0,0.6); }
+  .title { font-size: 2.6rem; }
+  .artist { font-size: 1.8rem; }
+}
+
+/* Very large ultra-wide screens */
+@media (min-width: 1600px) {
+  .player { padding-left: 6rem; padding-right: 6rem; }
+}
+
+/* Portrait / narrow screens: stack vertically */
+@media (orientation: portrait), (max-width: 800px) {
+  .fade-wrapper { height: auto; min-height: 100vh; }
+  .player {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto 1fr;
+    gap: 1rem;
+    padding: 1rem;
+    height: auto;
+    margin: auto; /* center horizontally and allow vertical centering by parent */
+    max-height: calc(100vh - 4rem);
+  }
+  /* center the absolute/overlayed slide content vertically */
+  .fade-slide { display: flex; align-items: center; justify-content: center; padding: 1rem; }
+  .art { width: min(80vw, 560px); margin: 0 auto; aspect-ratio: 1/1; }
+  .info { padding-top: 0.75rem; text-align: center; }
+  .title, .artist, .album { white-space: normal; overflow: visible; }
+  progress { height: 6px; }
+  .client { opacity: 0.8; }
+}
+
+/* Ensure marquee text doesn't overflow on small screens */
+.title span, .artist span, .album span { display:inline-block; max-width:100%; }
+
+/* Accessibility: increase hit target on mobile */
+@media (max-width: 600px) {
+  .player { padding: 1rem; gap: 0.75rem; }
+  .title { font-size: 1.25rem; }
+}
 </style>
 
 {#if !configLoaded}
@@ -300,10 +499,10 @@ progress { width: 100%; height: 8px; margin-top: 0.75rem; }
 {:else if $activeSession}
 <div class="fade-wrapper">
   {#each $sessions as session, i (session.sessionKey + session.guid)}
-    <div class="fade-slide {i === $activeIndex ? 'visible' : ''}">
+    <div class={`fade-slide ${i === $activeIndex ? 'visible' : ''} ${contentChanging && i === $activeIndex ? 'content-changing' : ''}`}>
       <div class="bg" style={`background-image: url(/api/art?thumb=${encodeURIComponent(session.art)})`}></div>
 
-      <div class="player">
+      <div class={`player ${contentChanging && i === $activeIndex ? 'content-changing' : ''}`}>
         <div class="art-container">
           <img class="art" alt="Album Art" src={`/api/art?thumb=${encodeURIComponent(session.art)}`} />
         </div>
@@ -315,6 +514,7 @@ progress { width: 100%; height: 8px; margin-top: 0.75rem; }
 
           <progress value={session.localOffset} max={session.duration}></progress>
           <div class="time">{format(session.localOffset)} / {format(session.duration)}</div>
+            <div class="mediainfo">{formatMediaInfo(session)}</div>
           <div class="client">{session.product} — {session.player} — {session.user}</div>
         </div>
       </div>

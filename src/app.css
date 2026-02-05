@@ -1,0 +1,116 @@
+:root {
+  --main-font: 'Inter', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+}
+
+body {
+  font-family: var(--main-font);
+  margin: 0;
+  padding: 0;
+  overflow: hidden; /* prevent any page scroll */
+}
+
+.fade-wrapper, .fade-slide {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-height: 0;      /* prevents flex/grid children from overflowing */
+  overflow: hidden;   /* clips any slight overflow from scaled backgrounds */
+}
+
+.fade-slide {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  transition: opacity 1s ease;
+}
+
+.fade-slide.visible {
+  opacity: 1;
+}
+
+.player {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 1.5rem;
+  align-items: center;
+  height: 100%;           /* fills parent exactly */
+  padding: 1rem 1.5rem;   /* smaller padding to avoid overflow */
+  box-sizing: border-box;  /* include padding in height */
+  color: white;
+}
+
+.art-container {
+  min-width: 0;
+}
+
+.art {
+  width: clamp(180px, 35vh, 280px);
+  aspect-ratio: 1/1;
+  object-fit: cover;
+  border-radius: 16px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6);
+}
+
+.info {
+  min-width: 0;
+  overflow: hidden;      /* prevent text from expanding parent */
+}
+
+.title, .artist, .album {
+  white-space: nowrap;
+  overflow: hidden;
+  position: relative;
+  line-height: 1;        /* prevents extra vertical height */
+}
+
+.title {
+  font-size: clamp(1.2rem, 3.2vw, 2rem);
+}
+
+.artist {
+  font-size: clamp(1rem, 2.8vw, 1.5rem);
+  opacity: 0.85;
+}
+
+.album {
+  font-size: clamp(0.9rem, 2.5vw, 1.1rem);
+  opacity: 0.6;
+}
+
+progress {
+  width: 100%;
+  height: 6px;
+  margin-top: 0.5rem;
+}
+
+.time {
+  margin-top: 0.25rem;
+  font-size: 0.8rem;
+  opacity: 0.7;
+}
+
+.client {
+  margin-top: 0.5rem;
+  font-size: 0.85rem;
+  opacity: 0.7;
+}
+
+.bg {
+  position: absolute;      /* use absolute to avoid extra scroll */
+  inset: 0;
+  background-size: cover;
+  background-position: center;
+  filter: blur(32px) brightness(0.45);
+  transform: scale(1.15);
+  z-index: -1;
+}
+
+.idle {
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  font-size: 1.2rem;
+}
+

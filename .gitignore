@@ -1,0 +1,55 @@
+# =========================
+# Node / Svelte / Vite
+# =========================
+node_modules/
+npm-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Vite build output
+dist/
+.vite/
+
+# =========================
+# Runtime config (SECRETS)
+# =========================
+config/
+public/config/
+
+# Allow example configs to be committed
+!config/*.example.json
+!public/config/*.example.json
+
+# =========================
+# Environment files
+# =========================
+.env
+.env.*
+!.env.example
+
+# =========================
+# Docker
+# =========================
+*.tar
+docker-compose.override.yml
+
+# =========================
+# OS / Editor junk
+# =========================
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# =========================
+# Logs & temp
+# =========================
+logs/
+*.log
+
+# =========================
+# Misc
+# =========================
+coverage/

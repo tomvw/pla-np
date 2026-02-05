@@ -1,0 +1,290 @@
+<script>
+  import { onMount, onDestroy } from 'svelte';
+  import { writable, derived, get } from 'svelte/store';
+
+  // Stores
+  export const sessions = writable([]);
+  export const activeIndex = writable(0);
+
+  let progressTimer;
+  let rotationTimer;
+  let refreshTimer;
+
+  let config;
+  let configLoaded = false;
+
+  let PLEX_URL;
+  let PLEX_TOKEN;
+  let ALLOWED_PLAYERS = [];
+
+  async function loadConfig() {
+	  try {
+		const res = await fetch('/config/plex.config.json');
+		if (!res.ok) throw new Error('Failed to load config');
+
+		config = await res.json();
+
+		PLEX_URL = config.PLEX_URL;
+		PLEX_TOKEN = config.PLEX_TOKEN;
+		ALLOWED_PLAYERS = config.PLAYERS || [];
+
+		configLoaded = true;
+	} catch (err) {
+		console.error('Failed to load runtime config', err);
+	}
+  }
+
+  // Fetch Plex now playing sessions
+  async function fetchNowPlaying() {
+    if (!configLoaded) return;
+    try {
+      const res = await fetch(`${PLEX_URL}/status/sessions?X-Plex-Token=${PLEX_TOKEN}`);
+      const xmlText = await res.text();
+      const parser = new DOMParser();
+      const xml = parser.parseFromString(xmlText, 'application/xml');
+
+      let newTracks = Array.from(xml.querySelectorAll('Track')).map(track => {
+        const player = track.querySelector('Player');
+
+        const trackArtist = (track.getAttribute('originalTitle') || track.getAttribute('grandparentTitle') || '').trim();
+        const albumArtistRaw = (track.getAttribute('grandparentTitle') || '').trim();
+        const albumArtist = (albumArtistRaw && albumArtistRaw.toLowerCase() !== 'various artists' && albumArtistRaw !== trackArtist)
+          ? albumArtistRaw
+          : '';
+
+        return {
+          sessionKey: track.getAttribute('sessionKey'),
+          guid: track.getAttribute('guid'),
+          updatedAt: track.getAttribute('updatedAt'),
+          title: track.getAttribute('title')?.trim() || '',
+          trackArtist,
+          albumArtist,
+          album: track.getAttribute('parentTitle')?.trim() || '',
+          art: track.getAttribute('parentThumb') || track.getAttribute('grandparentThumb') || '',
+          duration: Number(track.getAttribute('duration') || 0),
+          localOffset: Number(track.getAttribute('viewOffset') || 0),
+          state: player?.getAttribute('state'),
+          player: player?.getAttribute('title'),
+          product: player?.getAttribute('product')
+        };
+      });
+
+      // Filter by allowed players if config is set
+      if (ALLOWED_PLAYERS.length > 0) {
+        newTracks = newTracks.filter(track => ALLOWED_PLAYERS.includes(track.player));
+      }
+
+      const current = get(sessions);
+
+      // Merge tracks: each client/session+track keeps its own progress
+      const merged = newTracks.map(track => {
+        const existing = current.find(
+          s => s.sessionKey === track.sessionKey && s.guid === track.guid
+        );
+
+        if (!existing || existing.updatedAt !== track.updatedAt) {
+          return { ...track };
+        }
+
+        return { ...track, localOffset: existing.localOffset };
+      });
+
+      sessions.set(merged);
+
+      if (merged.length !== current.length) startSlideshow();
+    } catch (err) {
+      console.error('Failed to fetch Plex sessions', err);
+    }
+  }
+
+  function startProgress() {
+    clearInterval(progressTimer);
+    progressTimer = setInterval(() => {
+      sessions.update(list =>
+        list.map(s =>
+          s.state === 'playing'
+            ? { ...s, localOffset: Math.min(s.localOffset + 1000, s.duration) }
+            : s
+        )
+      );
+    }, 1000);
+  }
+
+  function startSlideshow() {
+    clearInterval(rotationTimer);
+    rotationTimer = setInterval(() => {
+      const list = get(sessions);
+      if (!list.length) return;
+      activeIndex.update(i => (i + 1) % list.length);
+    }, 10000);
+  }
+
+  function startAutoRefresh() {
+    clearInterval(refreshTimer);
+    refreshTimer = setInterval(fetchNowPlaying, 15000);
+  }
+
+  const activeSession = derived([sessions, activeIndex], ([$sessions, $activeIndex]) => $sessions[$activeIndex]);
+
+  const format = ms => {
+    const s = Math.floor(ms / 1000);
+    return `${Math.floor(s / 60)}:${String(s % 60).padStart(2,'0')}`;
+  };
+
+  // Slower marquee with pause
+  export function marquee(node, { baseSpeed = 30, pauseDuration = 2000 } = {}) {
+    const span = node.querySelector('span');
+    if (!span) return;
+
+    span.style.display = 'inline-block';
+    span.style.whiteSpace = 'nowrap';
+    span.style.willChange = 'transform';
+
+    let offset = 0;
+    let frame;
+    let containerWidth = node.clientWidth;
+    let textWidth = span.scrollWidth;
+    let lastTime = performance.now();
+    let paused = true;
+
+    function step(time) {
+      const delta = time - lastTime;
+      lastTime = time;
+
+      if (textWidth > containerWidth) {
+        if (paused) {
+          setTimeout(() => { paused = false; }, pauseDuration);
+        } else {
+          const speed = baseSpeed * (containerWidth / textWidth);
+          offset -= speed * (delta / 1000); // pixels/sec
+          if (offset <= -textWidth) {
+            offset = 0;
+            paused = true;
+            lastTime = performance.now();
+          }
+          span.style.transform = `translateX(${offset}px)`;
+        }
+      }
+
+      frame = requestAnimationFrame(step);
+    }
+
+    step(performance.now());
+
+    const resizeObserver = new ResizeObserver(() => {
+      containerWidth = node.clientWidth;
+      textWidth = span.scrollWidth;
+      if (offset <= -textWidth) offset = 0;
+    });
+
+    resizeObserver.observe(node);
+
+    return {
+      destroy() {
+        cancelAnimationFrame(frame);
+        resizeObserver.disconnect();
+        span.style.transform = '';
+      }
+    };
+  }
+
+  $: displayArtist = $activeSession
+    ? ($activeSession.albumArtist && $activeSession.albumArtist.toLowerCase() !== 'various artists')
+      ? `${$activeSession.albumArtist} — ${$activeSession.trackArtist}`
+      : $activeSession.trackArtist || 'Unknown Artist'
+    : '';
+
+  onMount(async () => {
+    await loadConfig();
+
+    if (!configLoaded) return;
+
+    fetchNowPlaying();
+    startProgress();
+    startSlideshow();
+    startAutoRefresh();
+  });
+
+  onDestroy(() => {
+    clearInterval(progressTimer);
+    clearInterval(rotationTimer);
+    clearInterval(refreshTimer);
+  });
+</script>
+
+<style>
+:root { --main-font: 'Inter', 'Helvetica Neue', Helvetica, Arial, sans-serif; }
+
+body { font-family: var(--main-font); margin: 0; padding: 0; }
+
+.fade-wrapper { position: relative; width: 100%; height: 100vh; }
+.fade-slide { position: absolute; inset: 0; opacity: 0; transition: opacity 1s ease; }
+.fade-slide.visible { opacity: 1; }
+
+.player {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 1.5rem;
+  align-items: center;
+  height: 100vh;
+  padding: 1.5rem 2rem;
+  color: white;
+  position: relative;
+}
+
+.art-container { min-width: 0; }
+.art { width: clamp(240px, 42vh, 320px); aspect-ratio: 1/1; object-fit: cover; border-radius: 18px; box-shadow: 0 20px 60px rgba(0,0,0,0.6); }
+
+.info { min-width: 0; }
+.title, .artist, .album { white-space: nowrap; overflow: hidden; position: relative; }
+.title { font-size: clamp(1.4rem, 3.5vw, 2.2rem); }
+.artist { font-size: clamp(1.1rem, 3vw, 1.6rem); opacity: 0.85; }
+.album { font-size: clamp(0.95rem, 2.5vw, 1.2rem); opacity: 0.6; }
+
+progress { width: 100%; height: 8px; margin-top: 0.75rem; }
+.time { margin-top: 0.25rem; font-size: 0.85rem; opacity: 0.7; }
+.client { margin-top: 0.5rem; font-size: 0.9rem; opacity: 0.7; }
+
+.bg {
+  position: fixed;
+  inset: 0;
+  background-size: cover;
+  background-position: center;
+  filter: blur(32px) brightness(0.45);
+  transform: scale(1.15);
+  z-index: -1;
+}
+
+.idle { color: white; display: flex; align-items: center; justify-content: center; height: 100vh; }
+</style>
+
+{#if !configLoaded}
+<div class="idle">Loading...</div>
+{:else if $activeSession}
+<div class="fade-wrapper">
+  {#each $sessions as session, i (session.sessionKey + session.guid)}
+    <div class="fade-slide {i === $activeIndex ? 'visible' : ''}">
+      <div class="bg" style={`background-image: url(${PLEX_URL}${session.art}?X-Plex-Token=${PLEX_TOKEN})`}></div>
+
+      <div class="player">
+        <div class="art-container">
+          <img class="art" alt="{session.album}" src={`${PLEX_URL}${session.art}?X-Plex-Token=${PLEX_TOKEN}`} />
+        </div>
+
+        <div class="info">
+          <div class="title" use:marquee><span>{session.title}</span></div>
+          <div class="artist" use:marquee><span>{displayArtist}</span></div>
+          <div class="album" use:marquee><span>{session.album}</span></div>
+
+          <progress value={session.localOffset} max={session.duration}></progress>
+          <div class="time">{format(session.localOffset)} / {format(session.duration)}</div>
+          <div class="client">{session.product} — {session.player}</div>
+        </div>
+      </div>
+    </div>
+  {/each}
+</div>
+{:else}
+<div class="idle">Nothing playing</div>
+{/if}
+

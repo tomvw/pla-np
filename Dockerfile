@@ -10,19 +10,18 @@ COPY . .
 RUN npm run build
 
 # --- Production stage ---
-FROM nginx:alpine
+FROM node:20-alpine AS runtime
 
-# Remove default nginx config
-RUN rm /etc/nginx/conf.d/default.conf
+WORKDIR /app
 
-# Copy custom nginx config
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+# Install production dependencies
+COPY package*.json ./
+RUN npm ci --production
 
-# Copy built app
-COPY --from=build /app/dist /usr/share/nginx/html
+# Copy server and built frontend
+COPY --from=build /app/dist ./dist
+COPY server ./server
+COPY config ./config
 
-# Copy config
-COPY public/config /usr/share/nginx/html/config
-
-EXPOSE 80
-CMD ["nginx", "-g", "daemon off;"]
+EXPOSE 3000
+CMD ["node", "server/index.js"]

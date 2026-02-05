@@ -21,13 +21,13 @@
 
   async function loadConfig() {
 	  try {
-		const res = await fetch('/config/plex.config.json');
+    const res = await fetch('/api/config');
 		if (!res.ok) throw new Error('Failed to load config');
 
 		config = await res.json();
 
-		PLEX_URL = config.PLEX_URL;
-		PLEX_TOKEN = config.PLEX_TOKEN;
+    // Server returns only public config (no token)
+    PLEX_URL = config.PLEX_URL;
 		ALLOWED_PLAYERS = config.PLAYERS || [];
 		ALLOWED_USERS = config.USERS || [];
 		ALLOWED_LIBRARIES = config.LIBRARIES || [];
@@ -42,7 +42,7 @@
   async function fetchNowPlaying() {
     if (!configLoaded) return;
     try {
-      const res = await fetch(`${PLEX_URL}/status/sessions?X-Plex-Token=${PLEX_TOKEN}`);
+      const res = await fetch('/api/sessions');
       const xmlText = await res.text();
       const parser = new DOMParser();
       const xml = parser.parseFromString(xmlText, 'application/xml');
@@ -301,11 +301,11 @@ progress { width: 100%; height: 8px; margin-top: 0.75rem; }
 <div class="fade-wrapper">
   {#each $sessions as session, i (session.sessionKey + session.guid)}
     <div class="fade-slide {i === $activeIndex ? 'visible' : ''}">
-      <div class="bg" style={`background-image: url(${PLEX_URL}${session.art}?X-Plex-Token=${PLEX_TOKEN})`}></div>
+      <div class="bg" style={`background-image: url(/api/art?thumb=${encodeURIComponent(session.art)})`}></div>
 
       <div class="player">
         <div class="art-container">
-          <img class="art" alt="{session.album}" src={`${PLEX_URL}${session.art}?X-Plex-Token=${PLEX_TOKEN}`} />
+          <img class="art" alt="Album Art" src={`/api/art?thumb=${encodeURIComponent(session.art)}`} />
         </div>
 
         <div class="info">

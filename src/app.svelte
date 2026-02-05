@@ -402,8 +402,11 @@
 :global(body) { font-family: var(--main-font); }
 
 .fade-wrapper { position: relative; width: 100%; height: 100vh; display: flex; justify-content: center; align-items: center; }
-.fade-slide { position: absolute; inset: 0; opacity: 0; transition: opacity 1s ease; }
+.fade-slide { position: absolute; inset: 0; opacity: 0; transition: opacity 1s ease; padding-inline: 2rem; box-sizing: border-box; }
 .fade-slide.visible { opacity: 1; }
+
+/* Prevent marquee transforms from causing horizontal scrolling */
+.fade-wrapper, .fade-slide { overflow: hidden; }
 
 .player {
   display: grid;
@@ -428,6 +431,14 @@
 .album { font-size: clamp(0.95rem, 2.5vw, 1.2rem); opacity: 0.6; padding-bottom: 5px;}
 
 progress { width: 100%; height: 8px; margin-top: 0.75rem; }
+/* Prevent long marquee text from crowding the right edge of the progress bar
+   by adding a small right padding in landscape / wide layouts and
+   shrinking the progress width accordingly. */
+@media (orientation: landscape) and (min-width: 900px) {
+  /* larger right gap to ensure progress and controls never hit viewport edge */
+  .info { box-sizing: border-box; }
+  progress { max-width: calc(100% - 3.5rem); width: 100%; }
+}
 .time { margin-top: 0.25rem; font-size: 0.85rem; opacity: 0.7; }
 .client { margin-top: 0.5rem; font-size: 0.9rem; opacity: 0.7; }
 .mediainfo { margin-top: 0.5rem; font-size: 0.9rem; opacity: 0.7; }

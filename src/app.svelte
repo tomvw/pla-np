@@ -16,6 +16,8 @@
   let PLEX_URL;
   let PLEX_TOKEN;
   let ALLOWED_PLAYERS = [];
+  let ALLOWED_USERS = [];
+  let ALLOWED_LIBRARIES = [];
 
   async function loadConfig() {
 	  try {
@@ -27,6 +29,8 @@
 		PLEX_URL = config.PLEX_URL;
 		PLEX_TOKEN = config.PLEX_TOKEN;
 		ALLOWED_PLAYERS = config.PLAYERS || [];
+		ALLOWED_USERS = config.USERS || [];
+		ALLOWED_LIBRARIES = config.LIBRARIES || [];
 
 		configLoaded = true;
 	} catch (err) {
@@ -45,6 +49,7 @@
 
       let newTracks = Array.from(xml.querySelectorAll('Track')).map(track => {
         const player = track.querySelector('Player');
+        const user = track.querySelector('User');
 
         const trackArtist = (track.getAttribute('originalTitle') || track.getAttribute('grandparentTitle') || '').trim();
         const albumArtistRaw = (track.getAttribute('grandparentTitle') || '').trim();
@@ -63,15 +68,25 @@
           art: track.getAttribute('parentThumb') || track.getAttribute('grandparentThumb') || '',
           duration: Number(track.getAttribute('duration') || 0),
           localOffset: Number(track.getAttribute('viewOffset') || 0),
+          library: track.getAttribute('librarySectionTitle'),
           state: player?.getAttribute('state'),
           player: player?.getAttribute('title'),
-          product: player?.getAttribute('product')
+          product: player?.getAttribute('product'),
+          user: user?.getAttribute('title')
         };
       });
 
       // Filter by allowed players if config is set
       if (ALLOWED_PLAYERS.length > 0) {
         newTracks = newTracks.filter(track => ALLOWED_PLAYERS.includes(track.player));
+      }
+
+      if (ALLOWED_USERS.length > 0) {
+        newTracks = newTracks.filter(track => ALLOWED_USERS.includes(track.user));
+      }
+
+      if (ALLOWED_LIBRARIES.length > 0) {
+        newTracks = newTracks.filter(track => ALLOWED_LIBRARIES.includes(track.library));
       }
 
       const current = get(sessions);
@@ -92,6 +107,18 @@
       sessions.set(merged);
 
       if (merged.length !== current.length) startSlideshow();
+
+      // If the currently active session is now paused, immediately advance
+      // to the next playing session so paused items exit the slideshow faster.
+      const listAfter = merged;
+      if (listAfter.length) {
+        const ci = get(activeIndex) || 0;
+        const active = listAfter[ci];
+        if (active && active.state !== 'playing') {
+          const next = nextPlayingIndex(ci, listAfter);
+          activeIndex.set(next);
+        }
+      }
     } catch (err) {
       console.error('Failed to fetch Plex sessions', err);
     }
@@ -115,8 +142,20 @@
     rotationTimer = setInterval(() => {
       const list = get(sessions);
       if (!list.length) return;
-      activeIndex.update(i => (i + 1) % list.length);
+      activeIndex.update(i => nextPlayingIndex(i, list));
     }, 10000);
+  }
+
+  // Find the next playing session index after `current`.
+  // If no other playing sessions exist, returns `current`.
+  function nextPlayingIndex(current, list) {
+    const n = list.length;
+    if (n === 0) return 0;
+    for (let offset = 1; offset < n; offset++) {
+      const idx = (current + offset) % n;
+      if (list[idx] && list[idx].state === 'playing') return idx;
+    }
+    return current;
   }
 
   function startAutoRefresh() {
@@ -215,8 +254,6 @@
 <style>
 :root { --main-font: 'Inter', 'Helvetica Neue', Helvetica, Arial, sans-serif; }
 
-body { font-family: var(--main-font); margin: 0; padding: 0; }
-
 .fade-wrapper { position: relative; width: 100%; height: 100vh; }
 .fade-slide { position: absolute; inset: 0; opacity: 0; transition: opacity 1s ease; }
 .fade-slide.visible { opacity: 1; }
@@ -237,9 +274,9 @@ body { font-family: var(--main-font); margin: 0; padding: 0; }
 
 .info { min-width: 0; }
 .title, .artist, .album { white-space: nowrap; overflow: hidden; position: relative; }
-.title { font-size: clamp(1.4rem, 3.5vw, 2.2rem); }
-.artist { font-size: clamp(1.1rem, 3vw, 1.6rem); opacity: 0.85; }
-.album { font-size: clamp(0.95rem, 2.5vw, 1.2rem); opacity: 0.6; }
+.title { font-size: clamp(1.4rem, 3.5vw, 2.2rem); padding-bottom: 5px; }
+.artist { font-size: clamp(1.1rem, 3vw, 1.6rem); opacity: 0.85; padding-bottom: 5px; }
+.album { font-size: clamp(0.95rem, 2.5vw, 1.2rem); opacity: 0.6; padding-bottom: 5px;}
 
 progress { width: 100%; height: 8px; margin-top: 0.75rem; }
 .time { margin-top: 0.25rem; font-size: 0.85rem; opacity: 0.7; }
@@ -278,7 +315,7 @@ progress { width: 100%; height: 8px; margin-top: 0.75rem; }
 
           <progress value={session.localOffset} max={session.duration}></progress>
           <div class="time">{format(session.localOffset)} / {format(session.duration)}</div>
-          <div class="client">{session.product} — {session.player}</div>
+          <div class="client">{session.product} — {session.player} — {session.user}</div>
         </div>
       </div>
     </div>
@@ -287,4 +324,3 @@ progress { width: 100%; height: 8px; margin-top: 0.75rem; }
 {:else}
 <div class="idle">Nothing playing</div>
 {/if}
-

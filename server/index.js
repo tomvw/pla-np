@@ -190,13 +190,6 @@ app.get('/api/art', async (req, res) => {
   }
 });
 
-// Fallback to index.html for SPA routes
-app.get('*', (req, res) => {
-  const indexPath = path.resolve(distPath, 'index.html');
-  if (fs.existsSync(indexPath)) return res.sendFile(indexPath);
-  res.status(404).send('Not found');
-});
-
 // Cache stats endpoint
 app.get('/api/cache-stats', async (req, res) => {
   try {
@@ -227,7 +220,7 @@ app.get('/api/cache-stats', async (req, res) => {
     top.sort((a,b) => b.size - a.size);
     const largest = top.slice(0, 10);
     const hitRate = (CACHE_HITS + CACHE_MISSES) > 0 ? CACHE_HITS / (CACHE_HITS + CACHE_MISSES) : null;
-    res.json({ hits: CACHE_HITS, misses: CACHE_MISSES, totalBytes: total, fileCount: count, oldest: isFinite(oldest) ? oldest : null, newest: newest || null });
+    res.json({ hits: CACHE_HITS, misses: CACHE_MISSES, requests: CACHE_REQUESTS, hitRate, totalBytes: total, fileCount: count, oldest: isFinite(oldest) ? oldest : null, newest: newest || null, largest });
   } catch (err) {
     res.status(500).json({ error: 'failed' });
   }
@@ -259,6 +252,14 @@ app.post('/api/cache-clear', async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: 'failed' });
   }
+});
+
+// Fallback to index.html for SPA routes (but don't catch API routes)
+app.get('*', (req, res) => {
+  if (req.path && req.path.startsWith('/api/')) return res.status(404).send('Not found');
+  const indexPath = path.resolve(distPath, 'index.html');
+  if (fs.existsSync(indexPath)) return res.sendFile(indexPath);
+  res.status(404).send('Not found');
 });
 
 app.listen(PORT, () => {

@@ -15,8 +15,6 @@ jobs:
       docker:
         image: docker:26-dind
         options: --privileged
-        ports:
-          - 2375:2375
 
     env:
       DOCKER_HOST: tcp://docker:2375

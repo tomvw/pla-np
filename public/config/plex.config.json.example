@@ -1,0 +1,6 @@
+{
+  "PLEX_URL": "http://example.com",
+  "PLEX_TOKEN": "Example_Token",
+  "PLAYERS": ["player1", "player2"],
+  "USERS": ["user1", "user2"]
+}

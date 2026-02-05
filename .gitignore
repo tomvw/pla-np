@@ -14,7 +14,6 @@ dist/
 # Runtime config (SECRETS)
 # =========================
 config/
-public/config/
 
 # Allow example configs to be committed
 !config/*.example.json

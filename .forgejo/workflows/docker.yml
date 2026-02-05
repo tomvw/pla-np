@@ -1,0 +1,77 @@
+name: Build & Publish Docker Image
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+
+jobs:
+  docker:
+    runs-on: ubuntu-latest
+
+    services:
+      docker:
+        image: docker:26-dind
+        options: --privileged
+        ports:
+          - 2375:2375
+
+    env:
+      DOCKER_HOST: tcp://docker:2375
+      DOCKER_TLS_CERTDIR: ""
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        env:
+          GIT_SSL_NO_VERIFY: "true"
+
+      - name: Set up Docker Buildx
+        run: |
+          docker buildx create --use
+          docker buildx inspect --bootstrap
+
+      - name: Determine version
+        id: version
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            VERSION="${GITHUB_REF#refs/tags/v}"
+            TAGS="$VERSION,latest"
+          else
+            SHA=$(git rev-parse --short HEAD)
+            VERSION="edge-$SHA"
+            TAGS="$VERSION"
+          fi
+
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "tags=$TAGS" >> $GITHUB_OUTPUT
+        env:
+          GIT_SSL_NO_VERIFY: "true"
+
+      - name: Login to registry
+        run: |
+          echo "${{ secrets.REGISTRY_PASSWORD }}" | docker login \
+            ${{ secrets.REGISTRY_URL }} \
+            -u "${{ secrets.REGISTRY_USERNAME }}" \
+            --password-stdin
+        env:
+          GIT_SSL_NO_VERIFY: "true"
+
+      - name: Build & push multi-arch image
+        run: |
+          IFS=',' read -ra TAG_ARRAY <<< "${{ steps.version.outputs.tags }}"
+
+          TAG_ARGS=""
+          for tag in "${TAG_ARRAY[@]}"; do
+            TAG_ARGS="$TAG_ARGS -t ${{ secrets.REGISTRY_URL }}/${{ secrets.IMAGE_NAME }}:$tag"
+          done
+
+          docker buildx build \
+            --platform linux/amd64,linux/arm64 \
+            -f Dockerfile.prod \
+            $TAG_ARGS \
+            --push .
+        env:
+          GIT_SSL_NO_VERIFY: "true"

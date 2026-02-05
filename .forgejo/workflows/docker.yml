@@ -15,6 +15,10 @@ jobs:
       docker:
         image: docker:26-dind
         options: --privileged
+        command:
+          - --host=tcp://0.0.0.0:2375
+          - --host=unix:///var/run/docker.sock
+          - --storage-driver=overlay2
 
     env:
       DOCKER_HOST: tcp://docker:2375
@@ -26,9 +30,15 @@ jobs:
         env:
           GIT_SSL_NO_VERIFY: "true"
 
+      - name: Wait for Docker
+        run: |
+          until docker info >/dev/null 2>&1; do
+            sleep 1
+          done
+
       - name: Set up Docker Buildx
         run: |
-          docker buildx create --use
+          docker buildx create --name forgejo --use
           docker buildx inspect --bootstrap
 
       - name: Determine version

@@ -21,7 +21,6 @@ RUN npm ci --production
 # Copy server and built frontend
 COPY --from=build /app/dist ./dist
 COPY server ./server
-COPY config ./config
 
 EXPOSE 3000
 CMD ["node", "server/index.js"]

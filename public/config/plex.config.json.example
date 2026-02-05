@@ -1,7 +1,0 @@
-{
-  "PLEX_URL": "http://your.plex.url",
-  "PLEX_TOKEN": "your-plex-token",
-  "PLAYERS": ["player1", "player2"],
-  "USERS": ["user1", "user2"],
-  "LIBRARIES": ["libary1", "library2"]
-}

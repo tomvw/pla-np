@@ -13,7 +13,7 @@ dist/
 # =========================
 # Runtime config (SECRETS)
 # =========================
-config/
+config/*.json
 
 # Allow example configs to be committed
 !config/*.example.json

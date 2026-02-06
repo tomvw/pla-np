@@ -13,11 +13,11 @@
   let config;
   let configLoaded = false;
 
-  let PLEX_URL;
-  let PLEX_TOKEN;
   let ALLOWED_PLAYERS = [];
   let ALLOWED_USERS = [];
   let ALLOWED_LIBRARIES = [];
+  let SHOW_USERNAME = true;
+  let SHOW_PROGRESS = true;
 
   async function loadConfig() {
 	  try {
@@ -27,10 +27,15 @@
 		config = await res.json();
 
     // Server returns only public config (no token)
-    PLEX_URL = config.PLEX_URL;
-		ALLOWED_PLAYERS = config.PLAYERS || [];
-		ALLOWED_USERS = config.USERS || [];
-		ALLOWED_LIBRARIES = config.LIBRARIES || [];
+    // PLEX_URL = config.PLEX_URL;
+    // Normalize allowed lists to lowercase trimmed strings for robust matching
+    ALLOWED_PLAYERS = (config.PLAYERS || []).map(p => String(p).toLowerCase().trim()).filter(Boolean);
+    ALLOWED_USERS = (config.USERS || []).map(u => String(u).toLowerCase().trim()).filter(Boolean);
+    ALLOWED_LIBRARIES = (config.LIBRARIES || []).map(l => String(l).toLowerCase().trim()).filter(Boolean);
+    // SHOW_USERNAME determines whether to display the session user in the client line
+    SHOW_USERNAME = config.SHOW_USERNAME === undefined ? true : Boolean(config.SHOW_USERNAME);
+    // SHOW_PROGRESS determines whether to show the progress bar and time info
+    SHOW_PROGRESS = config.SHOW_PROGRESS === undefined ? true : Boolean(config.SHOW_PROGRESS);
 
 		configLoaded = true;
 	} catch (err) {
@@ -42,12 +47,20 @@
   async function fetchNowPlaying() {
     if (!configLoaded) return;
     try {
+      // console.debug('fetchNowPlaying: starting', { PLEX_URL, ALLOWED_PLAYERS, ALLOWED_USERS, ALLOWED_LIBRARIES });
       const res = await fetch('/api/sessions');
+      // if (!res.ok) {
+      //   console.warn('fetchNowPlaying: /api/sessions returned non-OK', { status: res.status, statusText: res.statusText });
+      //   return;
+      // }
       const xmlText = await res.text();
+      // console.debug('fetchNowPlaying: fetched text length', xmlText.length);
       const parser = new DOMParser();
       const xml = parser.parseFromString(xmlText, 'application/xml');
 
-      let newTracks = Array.from(xml.querySelectorAll('Track')).map(track => {
+      const rawNodes = Array.from(xml.querySelectorAll('Track'));
+      // console.debug('fetchNowPlaying: raw track nodes', rawNodes.length);
+      let newTracks = rawNodes.map(track => {
         const player = track.querySelector('Player');
         const user = track.querySelector('User');
         const mediainfo = track.querySelector('Part');
@@ -97,6 +110,7 @@
           guid: track.getAttribute('guid'),
           updatedAt: track.getAttribute('updatedAt'),
           title: track.getAttribute('title')?.trim() || '',
+          year: track.getAttribute('parentYear'),
           trackArtist,
           albumArtist,
           album: track.getAttribute('parentTitle')?.trim() || '',
@@ -116,16 +130,19 @@
       });
 
       // Filter by allowed players if config is set
-      if (ALLOWED_PLAYERS.length > 0) {
-        newTracks = newTracks.filter(track => ALLOWED_PLAYERS.includes(track.player));
-      }
-
-      if (ALLOWED_USERS.length > 0) {
-        newTracks = newTracks.filter(track => ALLOWED_USERS.includes(track.user));
-      }
-
-      if (ALLOWED_LIBRARIES.length > 0) {
-        newTracks = newTracks.filter(track => ALLOWED_LIBRARIES.includes(track.library));
+      // Apply filters in a single pass (AND semantics)
+      if (ALLOWED_PLAYERS.length || ALLOWED_USERS.length || ALLOWED_LIBRARIES.length) {
+        // const beforeCount = newTracks.length;
+        newTracks = newTracks.filter(track => {
+          const p = String(track.player || '').toLowerCase().trim();
+          const u = String(track.user || '').toLowerCase().trim();
+          const l = String(track.library || '').toLowerCase().trim();
+          if (ALLOWED_PLAYERS.length && !ALLOWED_PLAYERS.includes(p)) return false;
+          if (ALLOWED_USERS.length && !ALLOWED_USERS.includes(u)) return false;
+          if (ALLOWED_LIBRARIES.length && !ALLOWED_LIBRARIES.includes(l)) return false;
+          return true;
+        });
+        // console.debug('fetchNowPlaying: filtered tracks', { before: beforeCount, after: newTracks.length });
       }
 
       const current = get(sessions);
@@ -143,9 +160,27 @@
         return { ...track, localOffset: existing.localOffset };
       });
 
+      // Debug: log session counts for troubleshooting intermittent empty state
+      // try { console.debug('Plex: fetched sessions', { previousCount: current.length, newCount: merged.length }); } catch (e) {}
+
       sessions.set(merged);
 
-      if (merged.length !== current.length) startSlideshow();
+      // If we transitioned from no sessions to some, ensure activeIndex is valid and start slideshow
+      if (merged.length > 0) {
+        const ci = get(activeIndex) || 0;
+        if (ci >= merged.length) activeIndex.set(0);
+        if (current.length === 0) {
+          // start at the first playing session
+          const startIdx = nextPlayingIndex(0, merged);
+          activeIndex.set(startIdx);
+          startSlideshow();
+        } else if (merged.length !== current.length) {
+          startSlideshow();
+        }
+      } else {
+        // no sessions — ensure activeIndex resets to 0 so UI shows "Nothing playing" consistently
+        activeIndex.set(0);
+      }
 
       // If the currently active session is now paused, immediately advance
       // to the next playing session so paused items exit the slideshow faster.
@@ -165,6 +200,7 @@
 
   function startProgress() {
     clearInterval(progressTimer);
+    // console.debug('startProgress: starting interval');
     progressTimer = setInterval(() => {
       sessions.update(list =>
         list.map(s =>
@@ -178,10 +214,16 @@
 
   function startSlideshow() {
     clearInterval(rotationTimer);
+    // console.debug('startSlideshow: starting rotation');
     rotationTimer = setInterval(() => {
       const list = get(sessions);
       if (!list.length) return;
-      activeIndex.update(i => nextPlayingIndex(i, list));
+      const prev = get(activeIndex) || 0;
+      const next = nextPlayingIndex(prev, list);
+      if (next !== prev) {
+        console.debug('startSlideshow: advancing index', { from: prev, to: next });
+        activeIndex.set(next);
+      }
     }, 10000);
   }
 
@@ -383,7 +425,9 @@
     if (!configLoaded) return;
 
     fetchNowPlaying();
-    startProgress();
+    if (SHOW_PROGRESS) {
+      startProgress();
+    };
     startSlideshow();
     startAutoRefresh();
   });
@@ -440,8 +484,8 @@ progress { width: 100%; height: 8px; margin-top: 0.75rem; }
   progress { max-width: calc(100% - 3.5rem); width: 100%; }
 }
 .time { margin-top: 0.25rem; font-size: 0.85rem; opacity: 0.7; }
-.client { margin-top: 0.5rem; font-size: 0.9rem; opacity: 0.7; }
-.mediainfo { margin-top: 0.5rem; font-size: 0.9rem; opacity: 0.7; }
+.client { margin-top: 0.1rem; font-size: 0.9rem; opacity: 0.7; }
+.mediainfo { margin-top: 0.7rem; font-size: 0.9rem; opacity: 0.7; }
 
 .bg {
   position: fixed;
@@ -475,7 +519,7 @@ progress { width: 100%; height: 8px; margin-top: 0.75rem; }
 }
 
 /* Portrait / narrow screens: stack vertically */
-@media (orientation: portrait), (max-width: 800px) {
+@media (orientation: portrait), (max-width: 600px) {
   .fade-wrapper { height: auto; min-height: 100vh; }
   .player {
     grid-template-columns: 1fr;
@@ -521,12 +565,14 @@ progress { width: 100%; height: 8px; margin-top: 0.75rem; }
         <div class="info">
           <div class="title" use:marquee><span>{session.title}</span></div>
           <div class="artist" use:marquee><span>{displayArtist}</span></div>
-          <div class="album" use:marquee><span>{session.album}</span></div>
+          <div class="album" use:marquee><span>{session.album} {#if session.year}({session.year}){/if}</span></div>
 
-          <progress value={session.localOffset} max={session.duration}></progress>
-          <div class="time">{format(session.localOffset)} / {format(session.duration)}</div>
-            <div class="mediainfo">{formatMediaInfo(session)}</div>
-          <div class="client">{session.product} — {session.player} — {session.user}</div>
+          {#if SHOW_PROGRESS}
+            <progress value={session.localOffset} max={session.duration}></progress>
+            <div class="time">{format(session.localOffset)} / {format(session.duration)}</div>
+          {/if}
+          <div class="mediainfo">{formatMediaInfo(session)}</div>
+          <div class="client">{session.product} — {session.player}{#if SHOW_USERNAME && session.user} — {session.user}{/if}</div>
         </div>
       </div>
     </div>

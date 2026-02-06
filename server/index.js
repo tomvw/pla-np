@@ -90,6 +90,8 @@ app.get('/api/config', (req, res) => {
   const { PLEX_TOKEN, ...publicCfg } = config || {};
   res.json({
     PLEX_URL: publicCfg.PLEX_URL,
+    SHOW_USERNAME: publicCfg.SHOW_USERNAME,
+    SHOW_PROGRESS: publicCfg.SHOW_PROGRESS,
     PLAYERS: publicCfg.PLAYERS || [],
     USERS: publicCfg.USERS || [],
     LIBRARIES: publicCfg.LIBRARIES || []

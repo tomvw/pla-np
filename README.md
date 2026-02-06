@@ -19,7 +19,7 @@ Your instance will be available at ```http://localhost:3000```
 ### Docker
 
 ```bash
-docker run -d --name pla-np -p 3000:3000 -v /path/to/config/plex.config.json:/app/config/plex.config.json:ro" --restart unless-stopped tomvw/pla-np:latest
+docker run -d --name pla-np -p 3000:3000 -v /path/to/config/plex.config.json:/app/config/plex.config.json:ro --restart unless-stopped tomvw/pla-np:latest
 ```
 
 ### Docker Compose

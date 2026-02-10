@@ -18,7 +18,7 @@
   let ALLOWED_LIBRARIES = [];
   let ARTIST_DISPLAY = 'both';
   let SHOW_USERNAME = true;
-  let SHOW_PROGRESS = true;
+  let SHOW_PROGRESS = false;
 
   async function loadConfig() {
 	  try {
@@ -208,7 +208,6 @@
       const prev = get(activeIndex) || 0;
       const next = nextPlayingIndex(prev, list);
       if (next !== prev) {
-        console.debug('startSlideshow: advancing index', { from: prev, to: next });
         activeIndex.set(next);
       }
     }, 10000);
@@ -238,16 +237,24 @@
   let prevActiveIndex = null;
   let contentChanging = false;
   let _contentChangeTimer = null;
+  let forceSlideFade = false;
 
   $: if ($activeSession !== undefined) {
     // When the active index stays the same but guid changes, it's a new song
     if (prevActiveIndex !== null && $activeIndex === prevActiveIndex && prevActiveGuid && $activeSession && $activeSession.guid !== prevActiveGuid) {
-      contentChanging = true;
+      /* contentChanging = true;
       if (_contentChangeTimer) clearTimeout(_contentChangeTimer);
       _contentChangeTimer = setTimeout(() => {
         contentChanging = false;
         _contentChangeTimer = null;
-      }, 520);
+      }, 520); */
+      // Trigger a full slide fade when the song changes but the session stays the same
+      forceSlideFade = true;
+
+      // Remove visible briefly, then restore
+      setTimeout(() => {
+        forceSlideFade = false;
+      }, 200);
     }
     prevActiveGuid = $activeSession ? $activeSession.guid : null;
     prevActiveIndex = $activeIndex;
@@ -433,7 +440,7 @@
 {:else if $activeSession}
 <div class="fade-wrapper">
   {#each $sessions as session, i (session.sessionKey + session.guid)}
-    <div class={`fade-slide ${i === $activeIndex ? 'visible' : ''} ${contentChanging && i === $activeIndex ? 'content-changing' : ''}`}>
+    <div class={`fade-slide ${i === $activeIndex && !forceSlideFade ? 'visible' : ''}`}>
       <div class="bg" style={`background-image: url(/api/art?thumb=${encodeURIComponent(session.art)})`}></div>
 
       <div class={`player ${contentChanging && i === $activeIndex ? 'content-changing' : ''}`}>

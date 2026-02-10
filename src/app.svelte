@@ -26,8 +26,6 @@
 
 		config = await res.json();
 
-    // Server returns only public config (no token)
-    // PLEX_URL = config.PLEX_URL;
     // Normalize allowed lists to lowercase trimmed strings for robust matching
     ALLOWED_PLAYERS = (config.PLAYERS || []).map(p => String(p).toLowerCase().trim()).filter(Boolean);
     ALLOWED_USERS = (config.USERS || []).map(u => String(u).toLowerCase().trim()).filter(Boolean);
@@ -47,19 +45,12 @@
   async function fetchNowPlaying() {
     if (!configLoaded) return;
     try {
-      // console.debug('fetchNowPlaying: starting', { PLEX_URL, ALLOWED_PLAYERS, ALLOWED_USERS, ALLOWED_LIBRARIES });
       const res = await fetch('/api/sessions');
-      // if (!res.ok) {
-      //   console.warn('fetchNowPlaying: /api/sessions returned non-OK', { status: res.status, statusText: res.statusText });
-      //   return;
-      // }
       const xmlText = await res.text();
-      // console.debug('fetchNowPlaying: fetched text length', xmlText.length);
       const parser = new DOMParser();
       const xml = parser.parseFromString(xmlText, 'application/xml');
 
       const rawNodes = Array.from(xml.querySelectorAll('Track'));
-      // console.debug('fetchNowPlaying: raw track nodes', rawNodes.length);
       let newTracks = rawNodes.map(track => {
         const player = track.querySelector('Player');
         const user = track.querySelector('User');
@@ -132,7 +123,6 @@
       // Filter by allowed players if config is set
       // Apply filters in a single pass (AND semantics)
       if (ALLOWED_PLAYERS.length || ALLOWED_USERS.length || ALLOWED_LIBRARIES.length) {
-        // const beforeCount = newTracks.length;
         newTracks = newTracks.filter(track => {
           const p = String(track.player || '').toLowerCase().trim();
           const u = String(track.user || '').toLowerCase().trim();
@@ -142,7 +132,6 @@
           if (ALLOWED_LIBRARIES.length && !ALLOWED_LIBRARIES.includes(l)) return false;
           return true;
         });
-        // console.debug('fetchNowPlaying: filtered tracks', { before: beforeCount, after: newTracks.length });
       }
 
       const current = get(sessions);
@@ -159,9 +148,6 @@
 
         return { ...track, localOffset: existing.localOffset };
       });
-
-      // Debug: log session counts for troubleshooting intermittent empty state
-      // try { console.debug('Plex: fetched sessions', { previousCount: current.length, newCount: merged.length }); } catch (e) {}
 
       sessions.set(merged);
 
@@ -200,7 +186,6 @@
 
   function startProgress() {
     clearInterval(progressTimer);
-    // console.debug('startProgress: starting interval');
     progressTimer = setInterval(() => {
       sessions.update(list =>
         list.map(s =>
@@ -214,7 +199,6 @@
 
   function startSlideshow() {
     clearInterval(rotationTimer);
-    // console.debug('startSlideshow: starting rotation');
     rotationTimer = setInterval(() => {
       const list = get(sessions);
       if (!list.length) return;
@@ -439,116 +423,6 @@
   });
 </script>
 
-<style>
-:root { --main-font: 'Inter', 'Helvetica Neue', Helvetica, Arial, sans-serif; }
-:global(:root) { --main-font: 'Fira Sans', 'Inter', 'Helvetica Neue', Helvetica, Arial, sans-serif; --max-content-width: 1400px; }
-
-:global(body) { font-family: var(--main-font); }
-
-.fade-wrapper { position: relative; width: 100%; height: 100vh; display: flex; justify-content: center; align-items: center; }
-.fade-slide { position: absolute; inset: 0; opacity: 0; transition: opacity 1s ease; padding-inline: 2rem; box-sizing: border-box; }
-.fade-slide.visible { opacity: 1; }
-
-/* Prevent marquee transforms from causing horizontal scrolling */
-.fade-wrapper, .fade-slide { overflow: hidden; }
-
-.player {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 1.5rem;
-  align-items: center;
-  height: 100vh;
-  padding: 1.5rem 2rem;
-  color: white;
-  position: relative;
-  max-width: var(--max-content-width);
-  margin: 0 auto;
-}
-
-.art-container { min-width: 0; display:flex; align-items:center; justify-content:center; }
-.art { width: clamp(240px, 42vh, 320px); aspect-ratio: 1/1; object-fit: cover; border-radius: 18px; box-shadow: 0 20px 60px rgba(0,0,0,0.6); }
-
-.info { min-width: 0; }
-.title, .artist, .album { white-space: nowrap; overflow: hidden; position: relative; text-overflow: ellipsis; }
-.title { font-size: clamp(1.4rem, 3.5vw, 2.2rem); padding-bottom: 5px; }
-.artist { font-size: clamp(1.1rem, 3vw, 1.6rem); opacity: 0.85; padding-bottom: 5px; }
-.album { font-size: clamp(0.95rem, 2.5vw, 1.2rem); opacity: 0.6; padding-bottom: 5px;}
-
-progress { width: 100%; height: 8px; margin-top: 0.75rem; }
-/* Prevent long marquee text from crowding the right edge of the progress bar
-   by adding a small right padding in landscape / wide layouts and
-   shrinking the progress width accordingly. */
-@media (orientation: landscape) and (min-width: 900px) {
-  /* larger right gap to ensure progress and controls never hit viewport edge */
-  .info { box-sizing: border-box; }
-  progress { max-width: calc(100% - 3.5rem); width: 100%; }
-}
-.time { margin-top: 0.25rem; font-size: 0.85rem; opacity: 0.7; }
-.client { margin-top: 0.1rem; font-size: 0.9rem; opacity: 0.7; }
-.mediainfo { margin-top: 0.7rem; font-size: 0.9rem; opacity: 0.7; }
-
-.bg {
-  position: fixed;
-  inset: 0;
-  background-size: cover;
-  background-position: center;
-  filter: blur(32px) brightness(0.45);
-  transform: scale(1.15);
-  z-index: -1;
-}
-
-/* In-place content change (same session, new song) */
-.fade-slide.content-changing .bg { transition: opacity .45s ease; opacity: 0; }
-.player.content-changing .art,
-.player.content-changing .info { transition: opacity .45s ease, transform .45s ease; opacity: 0; transform: translateY(6px); }
-.player .art, .player .info { transition: opacity .45s ease, transform .45s ease; opacity: 1; transform: none; }
-
-.idle { color: white; display: flex; align-items: center; justify-content: center; height: 100vh; }
-
-/* Larger screens: more generous spacing and art */
-@media (min-width: 1200px) {
-  .player { gap: 2.5rem; padding: 2.5rem 4rem; }
-  .art { width: clamp(320px, 50vh, 520px); border-radius: 20px; box-shadow: 0 30px 80px rgba(0,0,0,0.6); }
-  .title { font-size: 2.6rem; }
-  .artist { font-size: 1.8rem; }
-}
-
-/* Very large ultra-wide screens */
-@media (min-width: 1600px) {
-  .player { padding-left: 6rem; padding-right: 6rem; }
-}
-
-/* Portrait / narrow screens: stack vertically */
-@media (orientation: portrait), (max-width: 600px) {
-  .fade-wrapper { height: auto; min-height: 100vh; }
-  .player {
-    grid-template-columns: 1fr;
-    grid-template-rows: auto 1fr;
-    gap: 1rem;
-    padding: 1rem;
-    height: auto;
-    margin: auto; /* center horizontally and allow vertical centering by parent */
-    max-height: calc(100vh - 4rem);
-  }
-  /* center the absolute/overlayed slide content vertically */
-  .fade-slide { display: flex; align-items: center; justify-content: center; padding: 1rem; }
-  .art { width: min(80vw, 560px); margin: 0 auto; aspect-ratio: 1/1; }
-  .info { padding-top: 0.75rem; text-align: center; }
-  .title, .artist, .album { white-space: normal; overflow: visible; }
-  progress { height: 6px; }
-  .client { opacity: 0.8; }
-}
-
-/* Ensure marquee text doesn't overflow on small screens */
-.title span, .artist span, .album span { display:inline-block; max-width:100%; }
-
-/* Accessibility: increase hit target on mobile */
-@media (max-width: 600px) {
-  .player { padding: 1rem; gap: 0.75rem; }
-  .title { font-size: 1.25rem; }
-}
-</style>
-
 {#if !configLoaded}
 <div class="idle">Loading...</div>
 {:else if $activeSession}
@@ -572,7 +446,7 @@ progress { width: 100%; height: 8px; margin-top: 0.75rem; }
             <div class="time">{format(session.localOffset)} / {format(session.duration)}</div>
           {/if}
           <div class="mediainfo">{formatMediaInfo(session)}</div>
-          <div class="client">{session.product} — {session.player}{#if SHOW_USERNAME && session.user} — {session.user}{/if}</div>
+          <div class="client">{session.product} — {session.player} {#if SHOW_USERNAME && session.user} — {session.user}{/if}</div>
         </div>
       </div>
     </div>

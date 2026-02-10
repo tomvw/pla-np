@@ -96,11 +96,34 @@ cleanupCache().catch(() => {});
 
 // Load config from repo config/plex.config.json (kept out of frontend)
 let config = {};
+const cfgPath = path.resolve(__dirname, "..", "config", "plex.config.json");
+
+function loadConfig() {
+  try {
+    const raw = fs.readFileSync(cfgPath, "utf8");
+    const parsed = JSON.parse(raw);
+    config = parsed || {};
+    console.log("Loaded server config from", cfgPath);
+  } catch (err) {
+    console.warn("Failed to load server config:", err.message);
+  }
+}
+
+// initial load
+loadConfig();
+
+// Watch the config file for changes and reload automatically.
+// Use fs.watchFile for cross-platform stability and a 1s polling interval.
 try {
-  const cfgPath = path.resolve(__dirname, "..", "config", "plex.config.json");
-  config = JSON.parse(fs.readFileSync(cfgPath, "utf8"));
+  fs.watchFile(cfgPath, { interval: 1000 }, (curr, prev) => {
+    // mtime changed
+    if (curr.mtimeMs !== prev.mtimeMs) {
+      console.log("plex.config.json changed — reloading config");
+      loadConfig();
+    }
+  });
 } catch (err) {
-  console.warn("Failed to load server config:", err.message);
+  console.warn("Failed to watch config file for changes:", err.message);
 }
 
 // Serve built frontend

@@ -16,6 +16,7 @@
   let ALLOWED_PLAYERS = [];
   let ALLOWED_USERS = [];
   let ALLOWED_LIBRARIES = [];
+  let ARTIST_DISPLAY = 'both';
   let SHOW_USERNAME = true;
   let SHOW_PROGRESS = true;
 
@@ -30,6 +31,8 @@
     ALLOWED_PLAYERS = (config.PLAYERS || []).map(p => String(p).toLowerCase().trim()).filter(Boolean);
     ALLOWED_USERS = (config.USERS || []).map(u => String(u).toLowerCase().trim()).filter(Boolean);
     ALLOWED_LIBRARIES = (config.LIBRARIES || []).map(l => String(l).toLowerCase().trim()).filter(Boolean);
+    // ARTIST_DISPLAY determines how to show artist info: 'track' = track artist only, 'album' = album artist only, 'both' = "album artist — track artist"
+    ARTIST_DISPLAY = ['track', 'album', 'both'].includes(config.ARTIST_DISPLAY) ? config.ARTIST_DISPLAY : 'both';
     // SHOW_USERNAME determines whether to display the session user in the client line
     SHOW_USERNAME = config.SHOW_USERNAME === undefined ? true : Boolean(config.SHOW_USERNAME);
     // SHOW_PROGRESS determines whether to show the progress bar and time info
@@ -440,7 +443,15 @@
 
         <div class="info">
           <div class="title" use:marquee><span>{session.title}</span></div>
-          <div class="artist" use:marquee><span>{displayArtist}</span></div>
+          <div class="artist" use:marquee><span>
+          {#if ARTIST_DISPLAY === 'both' && session.albumArtist && session.albumArtist.toLowerCase() !== 'various artists'}
+            {displayArtist}
+          {:else if ARTIST_DISPLAY === 'album' && session.albumArtist && session.albumArtist.toLowerCase() !== 'various artists'}
+            {session.albumArtist}
+          {:else}
+            {session.trackArtist || 'Unknown Artist'}
+          {/if}
+          </span></div>
           <div class="album" use:marquee><span>{session.album} {#if session.year}({session.year}){/if}</span></div>
 
           {#if SHOW_PROGRESS}

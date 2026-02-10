@@ -27,7 +27,7 @@ body {
   position: absolute;
   inset: 0;
   opacity: 0;
-  transition: opacity 1s ease;
+  transition: opacity 0.8s ease;
   padding-inline: 2rem;
   box-sizing: border-box;
 }
@@ -130,7 +130,7 @@ progress {
   z-index: -1;
 }
 
-/* In-place content change (same session, new song) */
+/* In-place content change (same session, new song)
 .fade-slide.content-changing .bg {
   transition: opacity 0.45s ease;
   opacity: 0;
@@ -150,7 +150,7 @@ progress {
     transform 0.45s ease;
   opacity: 1;
   transform: none;
-}
+} */
 
 .idle {
   color: white;

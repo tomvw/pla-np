@@ -281,120 +281,122 @@
     span.style.whiteSpace = 'nowrap';
     span.style.willChange = 'transform';
 
-    let offset = 0;
-    let frame = null;
-    let containerWidth = node.clientWidth;
-    let textWidth = span.scrollWidth;
-    let lastTime = 0;
-    let paused = true;
-    let pauseTimer = null;
+      let offset = 0;
+      let frame = null;
+      let containerWidth = node.clientWidth;
+      let textWidth = span.scrollWidth;
+      let lastTime = 0;
+      let paused = true;
+      let pauseTimer = null;
+      let dir = -1; // -1 = move left (toward negative offset), 1 = move right (toward 0)
 
-    const slide = node.closest('.fade-slide');
-    const isActive = () => {
-      if (!slide) return true;
-      return slide.classList.contains('visible');
-    };
+      const slide = node.closest('.fade-slide');
+      const isActive = () => {
+        if (!slide) return true;
+        return slide.classList.contains('visible');
+      };
 
-    function startLoop() {
-      if (frame) return;
-      lastTime = performance.now();
-      frame = requestAnimationFrame(step);
-    }
-
-    function stopLoop() {
-      if (!frame) return;
-      cancelAnimationFrame(frame);
-      frame = null;
-    }
-
-    function step(time) {
-      frame = null;
-      if (!isActive()) {
-        // not visible — reset transform and pause
-        span.style.transform = '';
-        paused = true;
-        if (pauseTimer) { clearTimeout(pauseTimer); pauseTimer = null; }
-        // keep checking until visible
+      function startLoop() {
+        if (frame) return;
+        lastTime = performance.now();
         frame = requestAnimationFrame(step);
-        return;
       }
 
-      const delta = time - lastTime;
-      lastTime = time;
+      function stopLoop() {
+        if (!frame) return;
+        cancelAnimationFrame(frame);
+        frame = null;
+      }
 
-      // recalc sizes if needed
-      containerWidth = node.clientWidth;
-      textWidth = span.scrollWidth;
-
-      if (textWidth > containerWidth) {
-        if (paused) {
-          if (!pauseTimer) pauseTimer = setTimeout(() => { paused = false; pauseTimer = null; }, pauseDuration);
-        } else {
-          const speed = baseSpeed * (containerWidth / textWidth);
-          offset -= speed * (delta / 1000); // pixels/sec
-          if (offset <= -textWidth) {
-            offset = 0;
-            paused = true;
-            if (pauseTimer) clearTimeout(pauseTimer);
-            pauseTimer = setTimeout(() => { paused = false; pauseTimer = null; }, pauseDuration);
-            lastTime = performance.now();
-          }
-          span.style.transform = `translateX(${offset}px)`;
+      function step(time) {
+        frame = null;
+        if (!isActive()) {
+          span.style.transform = '';
+          paused = true;
+          if (pauseTimer) { clearTimeout(pauseTimer); pauseTimer = null; }
+          frame = requestAnimationFrame(step);
+          return;
         }
-      } else {
-        // text fits — ensure reset
-        offset = 0;
-        span.style.transform = '';
-        paused = true;
-        if (pauseTimer) { clearTimeout(pauseTimer); pauseTimer = null; }
-      }
 
-      frame = requestAnimationFrame(step);
-    }
+        const delta = time - lastTime;
+        lastTime = time;
 
-    // Start the loop — it will immediately pause if not active
-    startLoop();
+        containerWidth = node.clientWidth;
+        textWidth = span.scrollWidth;
+        const minOffset = Math.min(0, containerWidth - textWidth); // usually negative when text overflows
 
-    const resizeObserver = new ResizeObserver(() => {
-      containerWidth = node.clientWidth;
-      textWidth = span.scrollWidth;
-      if (offset <= -textWidth) offset = 0;
-    });
-    resizeObserver.observe(node);
-
-    // Observe visibility changes by watching the slide's class attribute
-    let mo = null;
-    if (slide) {
-      mo = new MutationObserver(() => {
-        // when visibility changes, (re)start loop so it can pick up new active state
-        if (isActive()) {
-          // ensure sizes are up-to-date
-          containerWidth = node.clientWidth;
-          textWidth = span.scrollWidth;
+        if (textWidth > containerWidth) {
           if (paused) {
-            // restart after pause to show the initial paused state then scroll
-            if (!pauseTimer) pauseTimer = setTimeout(() => { paused = false; pauseTimer = null; }, pauseDuration);
+            if (!pauseTimer) pauseTimer = setTimeout(() => { paused = false; pauseTimer = null; lastTime = performance.now(); }, pauseDuration);
+          } else {
+            const speed = baseSpeed * (containerWidth / textWidth);
+            offset += dir * speed * (delta / 1000);
+
+            if (offset <= minOffset) {
+              offset = minOffset;
+              dir = 1; // reverse toward 0
+              paused = true;
+              if (pauseTimer) clearTimeout(pauseTimer);
+              pauseTimer = setTimeout(() => { paused = false; pauseTimer = null; lastTime = performance.now(); }, pauseDuration);
+            } else if (offset >= 0) {
+              offset = 0;
+              dir = -1; // reverse toward minOffset
+              paused = true;
+              if (pauseTimer) clearTimeout(pauseTimer);
+              pauseTimer = setTimeout(() => { paused = false; pauseTimer = null; lastTime = performance.now(); }, pauseDuration);
+            }
+
+            span.style.transform = `translateX(${offset}px)`;
           }
         } else {
-          // reset immediately when hidden
           offset = 0;
           span.style.transform = '';
           paused = true;
           if (pauseTimer) { clearTimeout(pauseTimer); pauseTimer = null; }
         }
-      });
-      mo.observe(slide, { attributes: true, attributeFilter: ['class'] });
-    }
 
-    return {
-      destroy() {
-        stopLoop();
-        resizeObserver.disconnect();
-        if (mo) mo.disconnect();
-        if (pauseTimer) clearTimeout(pauseTimer);
-        span.style.transform = '';
+        frame = requestAnimationFrame(step);
       }
-    };
+
+      startLoop();
+
+      const resizeObserver = new ResizeObserver(() => {
+        containerWidth = node.clientWidth;
+        textWidth = span.scrollWidth;
+        const minOffset = Math.min(0, containerWidth - textWidth);
+        if (offset < minOffset) offset = minOffset;
+        if (offset > 0) offset = 0;
+      });
+      resizeObserver.observe(node);
+
+      let mo = null;
+      if (slide) {
+        mo = new MutationObserver(() => {
+          if (isActive()) {
+            containerWidth = node.clientWidth;
+            textWidth = span.scrollWidth;
+            if (paused) {
+              if (!pauseTimer) pauseTimer = setTimeout(() => { paused = false; pauseTimer = null; lastTime = performance.now(); }, pauseDuration);
+            }
+          } else {
+            offset = 0;
+            span.style.transform = '';
+            paused = true;
+            if (pauseTimer) { clearTimeout(pauseTimer); pauseTimer = null; }
+          }
+        });
+        mo.observe(slide, { attributes: true, attributeFilter: ['class'] });
+      }
+
+      return {
+        destroy() {
+          stopLoop();
+          resizeObserver.disconnect();
+          if (mo) mo.disconnect();
+          if (pauseTimer) clearTimeout(pauseTimer);
+          span.style.transform = '';
+        }
+      };
   }
 
   $: displayArtist = $activeSession

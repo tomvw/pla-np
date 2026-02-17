@@ -139,6 +139,8 @@ app.get("/api/config", (req, res) => {
     PLEX_URL: publicCfg.PLEX_URL,
     SHOW_USERNAME: publicCfg.SHOW_USERNAME,
     SHOW_PROGRESS: publicCfg.SHOW_PROGRESS,
+    SHOW_MEDIAINFO: publicCfg.SHOW_MEDIAINFO,
+    SHOW_CLIENTINFO: publicCfg.SHOW_CLIENTINFO,
     ARTIST_DISPLAY: publicCfg.ARTIST_DISPLAY,
     PLAYERS: publicCfg.PLAYERS || [],
     USERS: publicCfg.USERS || [],

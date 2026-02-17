@@ -114,6 +114,11 @@ progress {
   font-size: 0.9rem;
   opacity: 0.7;
 }
+.client-nomediainfo {
+  margin-top: 0.7rem;
+  font-size: 0.9rem;
+  opacity: 0.7;
+}
 .mediainfo {
   margin-top: 0.7rem;
   font-size: 0.9rem;
@@ -129,28 +134,6 @@ progress {
   transform: scale(1.15);
   z-index: -1;
 }
-
-/* In-place content change (same session, new song)
-.fade-slide.content-changing .bg {
-  transition: opacity 0.45s ease;
-  opacity: 0;
-}
-.player.content-changing .art,
-.player.content-changing .info {
-  transition:
-    opacity 0.45s ease,
-    transform 0.45s ease;
-  opacity: 0;
-  transform: translateY(6px);
-}
-.player .art,
-.player .info {
-  transition:
-    opacity 0.45s ease,
-    transform 0.45s ease;
-  opacity: 1;
-  transform: none;
-} */
 
 .idle {
   color: white;

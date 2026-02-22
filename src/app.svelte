@@ -302,7 +302,7 @@
   let prevActiveIndex = null;
   let contentChanging = false;
   let _contentChangeTimer = null;
-  let forceSlideFade = false;
+  
 
   $: if ($activeSession !== undefined) {
     // When the active index stays the same but guid changes, it's a new song
@@ -313,19 +313,13 @@
       $activeSession &&
       $activeSession.guid !== prevActiveGuid
     ) {
-      /* contentChanging = true;
+      // Fade just the inner content (art + info) in-place so the background stays visible
+      contentChanging = true;
       if (_contentChangeTimer) clearTimeout(_contentChangeTimer);
       _contentChangeTimer = setTimeout(() => {
         contentChanging = false;
         _contentChangeTimer = null;
-      }, 520); */
-      // Trigger a full slide fade when the song changes but the session stays the same
-      forceSlideFade = true;
-
-      // Remove visible briefly, then restore
-      setTimeout(() => {
-        forceSlideFade = false;
-      }, 200);
+      }, 900);
     }
     prevActiveGuid = $activeSession ? $activeSession.guid : null;
     prevActiveIndex = $activeIndex;
@@ -507,6 +501,94 @@
     };
   }
 
+  // Action to smoothly preload and crossfade images for img elements or background divs.
+  // Usage: use:smoothImage={{ src: session.art, isBg: true }} or use:smoothImage={{ src: session.art }}
+  export function smoothImage(node, params) {
+    let { src, isBg = false } = params || {};
+    let lastSrc = null;
+    let pending = null;
+
+    const parent = node.parentElement;
+
+    function doLoad(newSrc) {
+      if (!newSrc) return;
+      const url = `/api/art?thumb=${encodeURIComponent(newSrc)}`;
+      if (newSrc === lastSrc) return;
+      lastSrc = newSrc;
+
+      const img = new Image();
+      pending = img;
+      img.onload = () => {
+        if (pending !== img) return;
+        pending = null;
+
+        if (isBg) {
+          // create overlay div inside the bg node and crossfade via opacity
+          const overlay = document.createElement("div");
+          overlay.className = "bg-overlay";
+          overlay.style.backgroundImage = `url(${url})`;
+          overlay.style.opacity = "0";
+          overlay.style.transition = "opacity 1s ease";
+          node.appendChild(overlay);
+          // fade the overlay in above the base
+          requestAnimationFrame(() => (overlay.style.opacity = "1"));
+          // once overlay visible, set base to new image and fade overlay out to reveal it
+          setTimeout(() => {
+            try {
+              node.style.backgroundImage = `url(${url})`;
+            } catch (e) {}
+            // fade overlay out
+            overlay.style.opacity = "0";
+            // remove all overlays after fade completes
+            setTimeout(() => {
+              const others = Array.from(node.querySelectorAll(".bg-overlay"));
+              others.forEach((el) => el.remove());
+            }, 1050);
+          }, 1020);
+        } else {
+          // For img elements: set base img src immediately (so browser paints ASAP),
+          // then overlay a copy that fades out to provide a smooth transition.
+          try {
+            node.src = url;
+          } catch (e) {}
+
+          const overlay = document.createElement("img");
+          overlay.className = "art-overlay";
+          overlay.src = url;
+          overlay.alt = node.alt || "Album Art";
+          overlay.style.opacity = "1";
+          overlay.style.transition = "opacity 0.8s ease";
+          if (parent && getComputedStyle(parent).position === "static") {
+            parent.style.position = "relative";
+          }
+          parent.appendChild(overlay);
+          // fade overlay out to reveal the already-set base image
+          requestAnimationFrame(() => (overlay.style.opacity = "0"));
+          setTimeout(() => {
+            if (overlay && overlay.parentElement) overlay.remove();
+          }, 900);
+        }
+      };
+      img.onerror = () => {
+        pending = null;
+      };
+      img.src = url;
+    }
+
+    doLoad(src);
+
+    return {
+      update(newParams) {
+        src = newParams?.src;
+        isBg = !!newParams?.isBg;
+        doLoad(src);
+      },
+      destroy() {
+        pending = null;
+      },
+    };
+  }
+
   $: displayArtist = $activeSession
     ? $activeSession.albumArtist &&
       $activeSession.albumArtist.toLowerCase() !== "various artists"
@@ -540,22 +622,15 @@
   <div class="fade-wrapper">
     {#each $sessions as session, i (session.sessionKey + session.guid)}
       <div
-        class={`fade-slide ${i === $activeIndex && !forceSlideFade ? "visible" : ""}`}
+        class={`fade-slide ${i === $activeIndex ? "visible" : ""}`}
       >
-        <div
-          class="bg"
-          style={`background-image: url(/api/art?thumb=${encodeURIComponent(session.art)})`}
-        ></div>
+        <div class="bg" use:smoothImage={{ src: session.art, isBg: true }}></div>
 
         <div
           class={`player ${contentChanging && i === $activeIndex ? "content-changing" : ""}`}
         >
           <div class="art-container">
-            <img
-              class="art"
-              alt="Album Art"
-              src={`/api/art?thumb=${encodeURIComponent(session.art)}`}
-            />
+            <img class="art" alt="Album Art" use:smoothImage={{ src: session.art }} />
           </div>
 
           <div class="info">

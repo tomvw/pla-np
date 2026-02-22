@@ -51,9 +51,14 @@ body {
   padding: 1.5rem 2rem;
   color: white;
   position: relative;
+  transition: opacity 0.8s ease;
   max-width: var(--max-content-width);
   margin: 0 auto;
   box-sizing: border-box;
+}
+
+.player.content-changing {
+  opacity: 0;
 }
 
 .art-container {
@@ -61,13 +66,25 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
+  position: relative;
 }
 .art {
   width: clamp(240px, 42vh, 320px);
   aspect-ratio: 1/1;
   object-fit: cover;
-  border-radius: 18px;
+  border-radius: 10px;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+}
+
+.art-overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 10px;
+  z-index: 0;
+  will-change: opacity;
 }
 
 .info {
@@ -135,6 +152,17 @@ progress {
   z-index: -1;
 }
 
+.bg-overlay {
+  position: absolute;
+  inset: 0;
+  background-size: cover;
+  background-position: center;
+  filter: blur(32px) brightness(1.0);
+  transform: scale(1.15);
+  z-index: -1;
+  will-change: opacity;
+}
+
 .idle {
   color: white;
   display: flex;
@@ -151,7 +179,7 @@ progress {
   }
   .art {
     width: clamp(320px, 50vh, 520px);
-    border-radius: 20px;
+    border-radius: 10px;
     box-shadow: 0 30px 80px rgba(0, 0, 0, 0.6);
   }
   .title {

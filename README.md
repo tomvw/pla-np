@@ -62,7 +62,9 @@ Example config file:
   "LIBRARIES": ["music", "chiptunes"],
   "ARTIST_DISPLAY": "both",
   "SHOW_USERNAME": true,
-  "SHOW_PROGRESS": true
+  "SHOW_MEDIAINFO": true,
+  "SHOW_CLIENTINFO": true,
+  "SHOW_PROGRESS": false
 }
 ```
 

@@ -1,6 +1,6 @@
 :root {
   --main-font:
-    "Fira Sans", "Inter", "Helvetica Neue", Helvetica, Arial, sans-serif;
+    "Segoe UI", "Fira Sans", "Inter", "Helvetica Neue", Helvetica, Arial, sans-serif;
   --max-content-width: 1400px;
 }
 
@@ -103,6 +103,7 @@ body {
 }
 .artist {
   font-size: clamp(1.1rem, 3vw, 1.6rem);
+  font-weight: 600;
   opacity: 0.85;
 }
 .album {

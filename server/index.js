@@ -96,7 +96,7 @@ cleanupCache().catch(() => {});
 
 // Load config from repo config/plex.config.json (kept out of frontend)
 let config = {};
-let configVersion = 0;
+let configVersion = "";
 const cfgPath = path.resolve(__dirname, "..", "config", "plex.config.json");
 
 function loadConfig() {
@@ -104,8 +104,7 @@ function loadConfig() {
     const raw = fs.readFileSync(cfgPath, "utf8");
     const parsed = JSON.parse(raw);
     config = parsed || {};
-    const stat = fs.statSync(cfgPath);
-    configVersion = stat.mtimeMs;
+    configVersion = crypto.createHash("sha256").update(raw).digest("hex");
     console.log("Loaded server config from", cfgPath);
   } catch (err) {
     console.warn("Failed to load server config:", err.message);
@@ -114,13 +113,14 @@ function loadConfig() {
 
 function ensureFreshConfig() {
   try {
-    const stat = fs.statSync(cfgPath);
-    if (stat.mtimeMs !== configVersion) {
+    const raw = fs.readFileSync(cfgPath, "utf8");
+    const nextVersion = crypto.createHash("sha256").update(raw).digest("hex");
+    if (nextVersion !== configVersion) {
       console.log("plex.config.json changed — reloading config");
       loadConfig();
     }
   } catch (err) {
-    console.warn("Failed to stat server config:", err.message);
+    console.warn("Failed to read server config:", err.message);
   }
 }
 

@@ -95,7 +95,7 @@
 
   async function loadConfig({ reloadOnChange = false } = {}) {
     try {
-      const res = await fetch("/api/config");
+      const res = await fetch("/api/config", { cache: "no-store" });
       if (!res.ok) throw new Error("Failed to load config");
 
       const nextConfig = await res.json();

@@ -484,6 +484,120 @@
     return [codec, details].filter(Boolean).join(" — ");
   };
 
+  const slideMarqueeControllers = new WeakMap();
+
+  function getSlideMarqueeController(slide, { baseSpeed, pauseDuration }) {
+    let controller = slideMarqueeControllers.get(slide);
+    if (controller) return controller;
+
+    const subscribers = new Set();
+    let frame = null;
+    let lastTime = 0;
+    let paused = true;
+    let pauseRemaining = pauseDuration;
+    let direction = 1;
+    let progress = 0;
+
+    const isActive = () => slide.classList.contains("visible");
+
+    function getMaxDistance() {
+      let maxDistance = 0;
+      subscribers.forEach((subscriber) => {
+        maxDistance = Math.max(maxDistance, subscriber.getDistance());
+      });
+      return maxDistance;
+    }
+
+    function notify() {
+      subscribers.forEach((subscriber) => {
+        subscriber.update({ progress, paused, direction, active: isActive() });
+      });
+    }
+
+    function step(time) {
+      frame = null;
+
+      if (!isActive()) {
+        progress = 0;
+        paused = true;
+        pauseRemaining = pauseDuration;
+        direction = 1;
+        notify();
+        frame = requestAnimationFrame(step);
+        return;
+      }
+
+      if (!lastTime) lastTime = time;
+      const delta = time - lastTime;
+      lastTime = time;
+
+      const maxDistance = getMaxDistance();
+      if (maxDistance <= 0) {
+        progress = 0;
+        paused = true;
+        pauseRemaining = pauseDuration;
+        direction = 1;
+        notify();
+        frame = requestAnimationFrame(step);
+        return;
+      }
+
+      if (paused) {
+        pauseRemaining -= delta;
+        if (pauseRemaining <= 0) {
+          paused = false;
+          pauseRemaining = 0;
+        }
+      } else {
+        const travelTime = Math.max((maxDistance / baseSpeed) * 1000, 1);
+        const deltaProgress = delta / travelTime;
+        progress += direction * deltaProgress;
+
+        if (progress >= 1) {
+          progress = 1;
+          direction = -1;
+          paused = true;
+          pauseRemaining = pauseDuration;
+        } else if (progress <= 0) {
+          progress = 0;
+          direction = 1;
+          paused = true;
+          pauseRemaining = pauseDuration;
+        }
+      }
+
+      notify();
+      frame = requestAnimationFrame(step);
+    }
+
+    function ensureRunning() {
+      if (frame) return;
+      lastTime = 0;
+      frame = requestAnimationFrame(step);
+    }
+
+    controller = {
+      subscribe(subscriber) {
+        subscribers.add(subscriber);
+        ensureRunning();
+        notify();
+      },
+      unsubscribe(subscriber) {
+        subscribers.delete(subscriber);
+        if (!subscribers.size && frame) {
+          cancelAnimationFrame(frame);
+          frame = null;
+        }
+      },
+      refresh() {
+        notify();
+      },
+    };
+
+    slideMarqueeControllers.set(slide, controller);
+    return controller;
+  }
+
   // Slower marquee with pause
   export function marquee(node, { baseSpeed = 30, pauseDuration = 2000 } = {}) {
     const span = node.querySelector("span");
@@ -493,14 +607,8 @@
     span.style.whiteSpace = "nowrap";
     span.style.willChange = "transform";
 
-    let offset = 0;
-    let frame = null;
     let containerWidth = node.clientWidth;
     let textWidth = span.scrollWidth;
-    let lastTime = 0;
-    let paused = true;
-    let pauseTimer = null;
-    let dir = -1; // -1 = move left (toward negative offset), 1 = move right (toward 0)
 
     const slide = node.closest(".fade-slide");
     const isActive = () => {
@@ -508,131 +616,58 @@
       return slide.classList.contains("visible");
     };
 
-    function startLoop() {
-      if (frame) return;
-      lastTime = performance.now();
-      frame = requestAnimationFrame(step);
+    function getDistance() {
+      containerWidth = node.clientWidth;
+      textWidth = span.scrollWidth;
+      return Math.max(0, textWidth - containerWidth);
     }
 
-    function stopLoop() {
-      if (!frame) return;
-      cancelAnimationFrame(frame);
-      frame = null;
-    }
-
-    function step(time) {
-      frame = null;
-      if (!isActive()) {
+    function updatePosition({ progress, active }) {
+      const distance = getDistance();
+      if (!active || distance <= 0) {
         span.style.transform = "";
-        paused = true;
-        if (pauseTimer) {
-          clearTimeout(pauseTimer);
-          pauseTimer = null;
-        }
-        frame = requestAnimationFrame(step);
         return;
       }
-
-      const delta = time - lastTime;
-      lastTime = time;
-
-      containerWidth = node.clientWidth;
-      textWidth = span.scrollWidth;
-      const minOffset = Math.min(0, containerWidth - textWidth); // usually negative when text overflows
-
-      if (textWidth > containerWidth) {
-        if (paused) {
-          if (!pauseTimer)
-            pauseTimer = setTimeout(() => {
-              paused = false;
-              pauseTimer = null;
-              lastTime = performance.now();
-            }, pauseDuration);
-        } else {
-          const speed = baseSpeed * (containerWidth / textWidth);
-          offset += dir * speed * (delta / 1000);
-
-          if (offset <= minOffset) {
-            offset = minOffset;
-            dir = 1; // reverse toward 0
-            paused = true;
-            if (pauseTimer) clearTimeout(pauseTimer);
-            pauseTimer = setTimeout(() => {
-              paused = false;
-              pauseTimer = null;
-              lastTime = performance.now();
-            }, pauseDuration);
-          } else if (offset >= 0) {
-            offset = 0;
-            dir = -1; // reverse toward minOffset
-            paused = true;
-            if (pauseTimer) clearTimeout(pauseTimer);
-            pauseTimer = setTimeout(() => {
-              paused = false;
-              pauseTimer = null;
-              lastTime = performance.now();
-            }, pauseDuration);
-          }
-
-          span.style.transform = `translateX(${offset}px)`;
-        }
-      } else {
-        offset = 0;
-        span.style.transform = "";
-        paused = true;
-        if (pauseTimer) {
-          clearTimeout(pauseTimer);
-          pauseTimer = null;
-        }
-      }
-
-      frame = requestAnimationFrame(step);
+      span.style.transform = `translateX(${-distance * progress}px)`;
     }
 
-    startLoop();
+    const subscriber = {
+      getDistance,
+      update: updatePosition,
+    };
+
+    const controller = slide
+      ? getSlideMarqueeController(slide, { baseSpeed, pauseDuration })
+      : null;
+
+    if (controller) {
+      controller.subscribe(subscriber);
+    } else {
+      updatePosition({ progress: 0, active: true });
+    }
 
     const resizeObserver = new ResizeObserver(() => {
-      containerWidth = node.clientWidth;
-      textWidth = span.scrollWidth;
-      const minOffset = Math.min(0, containerWidth - textWidth);
-      if (offset < minOffset) offset = minOffset;
-      if (offset > 0) offset = 0;
+      if (controller) {
+        controller.refresh();
+      } else {
+        updatePosition({ progress: 0, active: true });
+      }
     });
     resizeObserver.observe(node);
 
     let mo = null;
     if (slide) {
       mo = new MutationObserver(() => {
-        if (isActive()) {
-          containerWidth = node.clientWidth;
-          textWidth = span.scrollWidth;
-          if (paused) {
-            if (!pauseTimer)
-              pauseTimer = setTimeout(() => {
-                paused = false;
-                pauseTimer = null;
-                lastTime = performance.now();
-              }, pauseDuration);
-          }
-        } else {
-          offset = 0;
-          span.style.transform = "";
-          paused = true;
-          if (pauseTimer) {
-            clearTimeout(pauseTimer);
-            pauseTimer = null;
-          }
-        }
+        controller?.refresh();
       });
       mo.observe(slide, { attributes: true, attributeFilter: ["class"] });
     }
 
     return {
       destroy() {
-        stopLoop();
+        controller?.unsubscribe(subscriber);
         resizeObserver.disconnect();
         if (mo) mo.disconnect();
-        if (pauseTimer) clearTimeout(pauseTimer);
         span.style.transform = "";
       },
     };

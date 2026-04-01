@@ -53,18 +53,14 @@
       session.albumArtist &&
       session.albumArtist.toLowerCase() !== "various artists"
     ) {
-      return `${session.albumArtist} — ${session.trackArtist}`;
+      return `${session.albumArtist} \/ ${session.trackArtist}`;
     }
     return session.trackArtist || "Unknown Artist";
   }
 
   function getRenderedArtist(session) {
     if (!session) return "Unknown Artist";
-    if (
-      ARTIST_DISPLAY === "both" &&
-      session.albumArtist &&
-      session.albumArtist.toLowerCase() !== "various artists"
-    ) {
+    if (ARTIST_DISPLAY === "both") {
       return getDisplayArtist(session);
     }
     if (

@@ -96,6 +96,7 @@ cleanupCache().catch(() => {});
 
 // Load config from repo config/plex.config.json (kept out of frontend)
 let config = {};
+let configVersion = 0;
 const cfgPath = path.resolve(__dirname, "..", "config", "plex.config.json");
 
 function loadConfig() {
@@ -103,6 +104,8 @@ function loadConfig() {
     const raw = fs.readFileSync(cfgPath, "utf8");
     const parsed = JSON.parse(raw);
     config = parsed || {};
+    const stat = fs.statSync(cfgPath);
+    configVersion = stat.mtimeMs;
     console.log("Loaded server config from", cfgPath);
   } catch (err) {
     console.warn("Failed to load server config:", err.message);
@@ -136,6 +139,7 @@ if (fs.existsSync(distPath)) {
 app.get("/api/config", (req, res) => {
   const { PLEX_TOKEN, ...publicCfg } = config || {};
   res.json({
+    CONFIG_VERSION: publicCfg.CONFIG_VERSION || configVersion,
     PLEX_URL: publicCfg.PLEX_URL,
     SHOW_USERNAME: publicCfg.SHOW_USERNAME,
     SHOW_PROGRESS: publicCfg.SHOW_PROGRESS,

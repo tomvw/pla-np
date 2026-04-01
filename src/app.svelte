@@ -12,6 +12,7 @@
 
   let config;
   let configLoaded = false;
+  let configVersion = null;
 
   let ALLOWED_PLAYERS = [];
   let ALLOWED_USERS = [];
@@ -92,12 +93,27 @@
     };
   }
 
-  async function loadConfig() {
+  async function loadConfig({ reloadOnChange = false } = {}) {
     try {
       const res = await fetch("/api/config");
       if (!res.ok) throw new Error("Failed to load config");
 
-      config = await res.json();
+      const nextConfig = await res.json();
+      const nextVersion = nextConfig.CONFIG_VERSION ?? null;
+
+      if (
+        reloadOnChange &&
+        configLoaded &&
+        configVersion !== null &&
+        nextVersion !== null &&
+        nextVersion !== configVersion
+      ) {
+        window.location.reload();
+        return;
+      }
+
+      config = nextConfig;
+      configVersion = nextVersion;
 
       // Normalize allowed lists to lowercase trimmed strings for robust matching
       ALLOWED_PLAYERS = (config.PLAYERS || [])
@@ -404,7 +420,10 @@
 
   function startAutoRefresh() {
     clearInterval(refreshTimer);
-    refreshTimer = setInterval(fetchNowPlaying, 15000);
+    refreshTimer = setInterval(async () => {
+      await loadConfig({ reloadOnChange: true });
+      fetchNowPlaying();
+    }, 15000);
   }
 
   const activeSession = derived(

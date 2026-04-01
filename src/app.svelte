@@ -21,6 +21,32 @@
   let SHOW_PROGRESS = false;
   let SHOW_MEDIAINFO = true;
   let SHOW_CLIENTINFO = true;
+  const TRACK_TRANSITION_MS = 2800;
+  const TRACK_TRANSITION_EASING = "cubic-bezier(0.16, 1, 0.3, 1)";
+
+  function getSessionIdentity(track) {
+    return (
+      track.sessionKey ||
+      [track.player, track.product, track.user].filter(Boolean).join("::")
+    );
+  }
+
+  function getTrackSignature(track) {
+    return [track.guid, track.updatedAt, track.title, track.album, track.duration]
+      .filter((value) => value !== undefined && value !== null)
+      .join("::");
+  }
+
+  function getDisplayArtist(session) {
+    if (!session) return "";
+    if (
+      session.albumArtist &&
+      session.albumArtist.toLowerCase() !== "various artists"
+    ) {
+      return `${session.albumArtist} — ${session.trackArtist}`;
+    }
+    return session.trackArtist || "Unknown Artist";
+  }
 
   async function loadConfig() {
     try {
@@ -146,7 +172,7 @@
         const bitrateKbps =
           !isNaN(bitrateNum) && bitrateNum > 0 ? Math.round(bitrateNum) : "";
 
-        return {
+        const session = {
           sessionKey: track.getAttribute("sessionKey"),
           guid: track.getAttribute("guid"),
           updatedAt: track.getAttribute("updatedAt"),
@@ -170,6 +196,12 @@
           bitDepth: bitDepthAttr,
           samplingRate: samplingRateKHz,
           bitrate: bitrateKbps,
+        };
+
+        return {
+          ...session,
+          identityKey: getSessionIdentity(session),
+          trackSignature: getTrackSignature(session),
         };
       });
 
@@ -200,26 +232,58 @@
       }
 
       const current = get(sessions);
+      const activeSessionBefore = current[get(activeIndex) || 0];
+      const activeIdentityBefore = activeSessionBefore?.identityKey;
 
-      // Merge tracks: each client/session+track keeps its own progress
-      const merged = newTracks.map((track) => {
-        const existing = current.find(
-          (s) => s.sessionKey === track.sessionKey && s.guid === track.guid,
-        );
+      const currentByIdentity = new Map(
+        current.map((session) => [session.identityKey, session]),
+      );
+      const incomingByIdentity = new Map(
+        newTracks.map((track) => [track.identityKey, track]),
+      );
 
-        if (!existing || existing.updatedAt !== track.updatedAt) {
+      // Preserve current ordering for active sessions to avoid visual churn when
+      // Plex returns the same sessions in a different order between polls.
+      const orderedTracks = [
+        ...current
+          .map((session) => incomingByIdentity.get(session.identityKey))
+          .filter(Boolean),
+        ...newTracks.filter((track) => !currentByIdentity.has(track.identityKey)),
+      ];
+
+      // Merge tracks: each client/session keeps a stable slide while the content
+      // inside it updates when the track changes.
+      const merged = orderedTracks.map((track) => {
+        const existing = currentByIdentity.get(track.identityKey);
+
+        if (!existing) {
+          return { ...track };
+        }
+
+        if (existing.trackSignature !== track.trackSignature) {
           return { ...track };
         }
 
         return { ...track, localOffset: existing.localOffset };
       });
 
+      let nextActiveIndex = 0;
+      if (merged.length > 0) {
+        const preservedIndex = merged.findIndex(
+          (session) => session.identityKey === activeIdentityBefore,
+        );
+        const currentIndex = get(activeIndex) || 0;
+        nextActiveIndex =
+          preservedIndex >= 0
+            ? preservedIndex
+            : Math.min(currentIndex, merged.length - 1);
+      }
+
       sessions.set(merged);
 
       // If we transitioned from no sessions to some, ensure activeIndex is valid and start slideshow
       if (merged.length > 0) {
-        const ci = get(activeIndex) || 0;
-        if (ci >= merged.length) activeIndex.set(0);
+        activeIndex.set(nextActiveIndex);
         if (current.length === 0) {
           // start at the first playing session
           const startIdx = nextPlayingIndex(0, merged);
@@ -296,34 +360,6 @@
     [sessions, activeIndex],
     ([$sessions, $activeIndex]) => $sessions[$activeIndex],
   );
-
-  // Track active changes so we can animate in-place content updates
-  let prevActiveGuid = null;
-  let prevActiveIndex = null;
-  let contentChanging = false;
-  let _contentChangeTimer = null;
-  
-
-  $: if ($activeSession !== undefined) {
-    // When the active index stays the same but guid changes, it's a new song
-    if (
-      prevActiveIndex !== null &&
-      $activeIndex === prevActiveIndex &&
-      prevActiveGuid &&
-      $activeSession &&
-      $activeSession.guid !== prevActiveGuid
-    ) {
-      // Fade just the inner content (art + info) in-place so the background stays visible
-      contentChanging = true;
-      if (_contentChangeTimer) clearTimeout(_contentChangeTimer);
-      _contentChangeTimer = setTimeout(() => {
-        contentChanging = false;
-        _contentChangeTimer = null;
-      }, 900);
-    }
-    prevActiveGuid = $activeSession ? $activeSession.guid : null;
-    prevActiveIndex = $activeIndex;
-  }
 
   const format = (ms) => {
     const s = Math.floor(ms / 1000);
@@ -510,6 +546,70 @@
 
     const parent = node.parentElement;
 
+    function fadeOutOldBackground(url) {
+      const previousBackground = node.style.backgroundImage;
+      const hasPrevious =
+        previousBackground &&
+        previousBackground !== "none" &&
+        previousBackground !== `url("${url}")` &&
+        previousBackground !== `url(${url})`;
+
+      try {
+        node.style.backgroundImage = `url(${url})`;
+      } catch (e) {}
+
+      if (!hasPrevious) return;
+
+      const overlay = document.createElement("div");
+      overlay.className = "bg-overlay";
+      overlay.style.backgroundImage = previousBackground;
+      overlay.style.opacity = "1";
+      overlay.style.transition = `opacity ${TRACK_TRANSITION_MS}ms ${TRACK_TRANSITION_EASING}`;
+      node.appendChild(overlay);
+
+      requestAnimationFrame(() => {
+        overlay.style.opacity = "0";
+      });
+
+      setTimeout(() => {
+        overlay.remove();
+      }, TRACK_TRANSITION_MS + 100);
+    }
+
+    function fadeOutOldArt(url) {
+      const previousSrc = node.currentSrc || node.getAttribute("src");
+      const hasPrevious = previousSrc && previousSrc !== url;
+
+      if (hasPrevious && parent && getComputedStyle(parent).position === "static") {
+        parent.style.position = "relative";
+      }
+
+      let overlay = null;
+      if (hasPrevious && parent) {
+        overlay = document.createElement("img");
+        overlay.className = "art-overlay";
+        overlay.src = previousSrc;
+        overlay.alt = node.alt || "Album Art";
+        overlay.style.opacity = "1";
+        overlay.style.transition = `opacity ${TRACK_TRANSITION_MS}ms ${TRACK_TRANSITION_EASING}`;
+        parent.appendChild(overlay);
+      }
+
+      try {
+        node.src = url;
+      } catch (e) {}
+
+      if (!overlay) return;
+
+      requestAnimationFrame(() => {
+        overlay.style.opacity = "0";
+      });
+
+      setTimeout(() => {
+        overlay?.remove();
+      }, TRACK_TRANSITION_MS + 100);
+    }
+
     function doLoad(newSrc) {
       if (!newSrc) return;
       const url = `/api/art?thumb=${encodeURIComponent(newSrc)}`;
@@ -523,50 +623,9 @@
         pending = null;
 
         if (isBg) {
-          // create overlay div inside the bg node and crossfade via opacity
-          const overlay = document.createElement("div");
-          overlay.className = "bg-overlay";
-          overlay.style.backgroundImage = `url(${url})`;
-          overlay.style.opacity = "0";
-          overlay.style.transition = "opacity 1s ease";
-          node.appendChild(overlay);
-          // fade the overlay in above the base
-          requestAnimationFrame(() => (overlay.style.opacity = "1"));
-          // once overlay visible, set base to new image and fade overlay out to reveal it
-          setTimeout(() => {
-            try {
-              node.style.backgroundImage = `url(${url})`;
-            } catch (e) {}
-            // fade overlay out
-            overlay.style.opacity = "0";
-            // remove all overlays after fade completes
-            setTimeout(() => {
-              const others = Array.from(node.querySelectorAll(".bg-overlay"));
-              others.forEach((el) => el.remove());
-            }, 1050);
-          }, 1020);
+          fadeOutOldBackground(url);
         } else {
-          // For img elements: set base img src immediately (so browser paints ASAP),
-          // then overlay a copy that fades out to provide a smooth transition.
-          try {
-            node.src = url;
-          } catch (e) {}
-
-          const overlay = document.createElement("img");
-          overlay.className = "art-overlay";
-          overlay.src = url;
-          overlay.alt = node.alt || "Album Art";
-          overlay.style.opacity = "1";
-          overlay.style.transition = "opacity 0.8s ease";
-          if (parent && getComputedStyle(parent).position === "static") {
-            parent.style.position = "relative";
-          }
-          parent.appendChild(overlay);
-          // fade overlay out to reveal the already-set base image
-          requestAnimationFrame(() => (overlay.style.opacity = "0"));
-          setTimeout(() => {
-            if (overlay && overlay.parentElement) overlay.remove();
-          }, 900);
+          fadeOutOldArt(url);
         }
       };
       img.onerror = () => {
@@ -588,13 +647,6 @@
       },
     };
   }
-
-  $: displayArtist = $activeSession
-    ? $activeSession.albumArtist &&
-      $activeSession.albumArtist.toLowerCase() !== "various artists"
-      ? `${$activeSession.albumArtist} — ${$activeSession.trackArtist}`
-      : $activeSession.trackArtist || "Unknown Artist"
-    : "";
 
   onMount(async () => {
     await loadConfig();
@@ -620,15 +672,13 @@
   <div class="idle">Loading...</div>
 {:else if $activeSession}
   <div class="fade-wrapper">
-    {#each $sessions as session, i (session.sessionKey + session.guid)}
+    {#each $sessions as session, i (session.identityKey)}
       <div
         class={`fade-slide ${i === $activeIndex ? "visible" : ""}`}
       >
         <div class="bg" use:smoothImage={{ src: session.art, isBg: true }}></div>
 
-        <div
-          class={`player ${contentChanging && i === $activeIndex ? "content-changing" : ""}`}
-        >
+        <div class="player">
           <div class="art-container">
             <img class="art" alt="Album Art" use:smoothImage={{ src: session.art }} />
           </div>
@@ -638,7 +688,7 @@
             <div class="artist" use:marquee>
               <span>
                 {#if ARTIST_DISPLAY === "both" && session.albumArtist && session.albumArtist.toLowerCase() !== "various artists"}
-                  {displayArtist}
+                  {getDisplayArtist(session)}
                 {:else if ARTIST_DISPLAY === "album" && session.albumArtist && session.albumArtist.toLowerCase() !== "various artists"}
                   {session.albumArtist}
                 {:else if ARTIST_DISPLAY === "track" && session.trackArtist}

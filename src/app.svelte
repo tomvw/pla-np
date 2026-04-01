@@ -855,23 +855,25 @@
 
             <div class="meta-stack">
               {#if SHOW_PROGRESS}
-                <div
-                  class="progress-track"
-                  role="progressbar"
-                  aria-label="Track progress"
-                  aria-valuemin="0"
-                  aria-valuemax={session.duration}
-                  aria-valuenow={session.localOffset}
-                >
+                <div class="progress-block">
                   <div
-                    class="progress-fill"
-                    style={`width: ${getProgressPercent(session)}%;`}
+                    class="progress-track"
+                    role="progressbar"
+                    aria-label="Track progress"
+                    aria-valuemin="0"
+                    aria-valuemax={session.duration}
+                    aria-valuenow={session.localOffset}
                   >
-                    <div class="progress-cap"></div>
+                    <div
+                      class="progress-fill"
+                      style={`width: ${getProgressPercent(session)}%;`}
+                    >
+                      <div class="progress-cap"></div>
+                    </div>
                   </div>
-                </div>
-                <div class="time">
-                  {format(session.localOffset)} / {format(session.duration)}
+                  <div class="time">
+                    {format(session.localOffset)} / {format(session.duration)}
+                  </div>
                 </div>
               {/if}
               {#if SHOW_MEDIAINFO}

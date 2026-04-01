@@ -123,6 +123,9 @@ body {
 
 .progress-block {
   margin-top: 0.9rem;
+  display: grid;
+  gap: 0.22rem;
+  width: 100%;
 }
 
 .progress-track {
@@ -178,7 +181,9 @@ body {
   }
 }
 .time {
-  margin-top: 0.35rem;
+  margin-top: 0;
+  width: calc(100% - 4px);
+  margin-left: 2px;
   font-size: 0.8rem;
   opacity: 0.64;
   text-align: left;
@@ -380,6 +385,8 @@ body {
     opacity: 0.8;
   }
   .time {
+    width: 100%;
+    margin-left: 0;
     text-align: center;
   }
   .badge-row {

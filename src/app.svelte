@@ -73,16 +73,17 @@
 
   function getTextSnapshot(session) {
     if (!session) return null;
+    const mediaInfo = getMediaInfoParts(session);
+    const clientInfo = getClientInfoParts(session);
     return {
       identityKey: session.identityKey,
       title: session.title,
       artist: getRenderedArtist(session),
       album: session.album,
       year: session.year,
-      mediainfo: formatMediaInfo(session),
-      product: session.product,
-      player: session.player,
-      user: session.user,
+      codec: mediaInfo.codec,
+      mediaBadges: mediaInfo.badges,
+      clientBadges: clientInfo.badges,
     };
   }
 
@@ -435,19 +436,32 @@
 
   // Format media info string: show codec, samplingRate (kHz) and bitDepth.
   // Only include the '/' separator between samplingRate and bitDepth when both exist.
+  const getMediaInfoParts = (s) => {
+    if (!s) return { codec: "", details: "", badges: [] };
+    const detailParts = [];
+    if (s.samplingRate) detailParts.push(`${s.samplingRate}kHz`);
+    if (s.bitDepth) detailParts.push(`${s.bitDepth}bit`);
+    if (s.bitrate) detailParts.push(`${s.bitrate}kbps`);
+    const badges = detailParts.length ? [detailParts.join(" / ")] : [];
+    return {
+      codec: s.codec || "",
+      details: badges.join(" / "),
+      badges,
+    };
+  };
+
+  const getClientInfoParts = (s) => {
+    if (!s) return { badges: [] };
+    const badges = [];
+    if (s.product) badges.push(s.product);
+    if (s.player) badges.push(s.player);
+    if (SHOW_USERNAME && s.user) badges.push(s.user);
+    return { badges };
+  };
+
   const formatMediaInfo = (s) => {
-    if (!s) return "";
-    const parts = [];
-    if (s.codec) parts.push(s.codec);
-    const audioParts = [];
-    if (s.samplingRate) audioParts.push(`${s.samplingRate}kHz`);
-    if (s.bitDepth) audioParts.push(`${s.bitDepth}bit`);
-    if (s.bitrate) {
-      // show bitrate after bitDepth when present, otherwise after samplingRate
-      audioParts.push(`${s.bitrate}kbps`);
-    }
-    if (audioParts.length) parts.push(audioParts.join(" / "));
-    return parts.join(" — ");
+    const { codec, details } = getMediaInfoParts(s);
+    return [codec, details].filter(Boolean).join(" — ");
   };
 
   // Slower marquee with pause
@@ -773,19 +787,29 @@
               </div>
             {/if}
             {#if SHOW_MEDIAINFO}
-              <div class="mediainfo">{formatMediaInfo(session)}</div>
+              {@const mediaInfo = getMediaInfoParts(session)}
+              <div class="badge-row mediainfo">
+                {#if mediaInfo.codec}
+                  <span class="info-badge codec-badge">{mediaInfo.codec}</span>
+                {/if}
+                {#each mediaInfo.badges as badge}
+                  <span class="info-badge meta-badge">{badge}</span>
+                {/each}
+              </div>
             {/if}
             {#if SHOW_CLIENTINFO && SHOW_MEDIAINFO}
-              <div class="client">
-                {session.product} — {session.player}
-                {#if SHOW_USERNAME && session.user}
-                  — {session.user}{/if}
+              {@const clientInfo = getClientInfoParts(session)}
+              <div class="badge-row client">
+                {#each clientInfo.badges as badge}
+                  <span class="info-badge meta-badge">{badge}</span>
+                {/each}
               </div>
             {:else if SHOW_CLIENTINFO && !SHOW_MEDIAINFO}
-              <div class="client-nomediainfo">
-                {session.product} — {session.player}
-                {#if SHOW_USERNAME && session.user}
-                  — {session.user}{/if}
+              {@const clientInfo = getClientInfoParts(session)}
+              <div class="badge-row client-nomediainfo">
+                {#each clientInfo.badges as badge}
+                  <span class="info-badge meta-badge">{badge}</span>
+                {/each}
               </div>
             {/if}
 
@@ -807,19 +831,26 @@
                   <div class="time-spacer"></div>
                 {/if}
                 {#if SHOW_MEDIAINFO}
-                  <div class="mediainfo">{textOverlay.mediainfo}</div>
+                  <div class="badge-row mediainfo">
+                    {#if textOverlay.codec}
+                      <span class="info-badge codec-badge">{textOverlay.codec}</span>
+                    {/if}
+                    {#each textOverlay.mediaBadges as badge}
+                      <span class="info-badge meta-badge">{badge}</span>
+                    {/each}
+                  </div>
                 {/if}
                 {#if SHOW_CLIENTINFO && SHOW_MEDIAINFO}
-                  <div class="client">
-                    {textOverlay.product} — {textOverlay.player}
-                    {#if SHOW_USERNAME && textOverlay.user}
-                      — {textOverlay.user}{/if}
+                  <div class="badge-row client">
+                    {#each textOverlay.clientBadges as badge}
+                      <span class="info-badge meta-badge">{badge}</span>
+                    {/each}
                   </div>
                 {:else if SHOW_CLIENTINFO && !SHOW_MEDIAINFO}
-                  <div class="client-nomediainfo">
-                    {textOverlay.product} — {textOverlay.player}
-                    {#if SHOW_USERNAME && textOverlay.user}
-                      — {textOverlay.user}{/if}
+                  <div class="badge-row client-nomediainfo">
+                    {#each textOverlay.clientBadges as badge}
+                      <span class="info-badge meta-badge">{badge}</span>
+                    {/each}
                   </div>
                 {/if}
               </div>

@@ -23,6 +23,7 @@
   let SHOW_CLIENTINFO = true;
   const TRACK_TRANSITION_MS = 2800;
   const TRACK_TRANSITION_EASING = "cubic-bezier(0.16, 1, 0.3, 1)";
+  const TRACK_TRANSITION_CLEANUP_MS = TRACK_TRANSITION_MS + 150;
 
   function getSessionIdentity(track) {
     return (
@@ -46,6 +47,43 @@
       return `${session.albumArtist} — ${session.trackArtist}`;
     }
     return session.trackArtist || "Unknown Artist";
+  }
+
+  function getRenderedArtist(session) {
+    if (!session) return "Unknown Artist";
+    if (
+      ARTIST_DISPLAY === "both" &&
+      session.albumArtist &&
+      session.albumArtist.toLowerCase() !== "various artists"
+    ) {
+      return getDisplayArtist(session);
+    }
+    if (
+      ARTIST_DISPLAY === "album" &&
+      session.albumArtist &&
+      session.albumArtist.toLowerCase() !== "various artists"
+    ) {
+      return session.albumArtist;
+    }
+    if (ARTIST_DISPLAY === "track" && session.trackArtist) {
+      return session.trackArtist;
+    }
+    return "Unknown Artist";
+  }
+
+  function getTextSnapshot(session) {
+    if (!session) return null;
+    return {
+      identityKey: session.identityKey,
+      title: session.title,
+      artist: getRenderedArtist(session),
+      album: session.album,
+      year: session.year,
+      mediainfo: formatMediaInfo(session),
+      product: session.product,
+      player: session.player,
+      user: session.user,
+    };
   }
 
   async function loadConfig() {
@@ -361,6 +399,35 @@
     ([$sessions, $activeIndex]) => $sessions[$activeIndex],
   );
 
+  let previousActiveSession = null;
+  let textOverlay = null;
+  let textOverlayTimer = null;
+
+  $: if ($activeSession) {
+    const sameSessionTrackChanged =
+      previousActiveSession &&
+      previousActiveSession.identityKey === $activeSession.identityKey &&
+      previousActiveSession.trackSignature !== $activeSession.trackSignature;
+
+    if (sameSessionTrackChanged) {
+      textOverlay = getTextSnapshot(previousActiveSession);
+      if (textOverlayTimer) clearTimeout(textOverlayTimer);
+      textOverlayTimer = setTimeout(() => {
+        textOverlay = null;
+        textOverlayTimer = null;
+      }, TRACK_TRANSITION_CLEANUP_MS);
+    }
+
+    previousActiveSession = $activeSession;
+  } else {
+    previousActiveSession = null;
+    textOverlay = null;
+    if (textOverlayTimer) {
+      clearTimeout(textOverlayTimer);
+      textOverlayTimer = null;
+    }
+  }
+
   const format = (ms) => {
     const s = Math.floor(ms / 1000);
     return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
@@ -665,6 +732,7 @@
     clearInterval(progressTimer);
     clearInterval(rotationTimer);
     clearInterval(refreshTimer);
+    if (textOverlayTimer) clearTimeout(textOverlayTimer);
   });
 </script>
 
@@ -687,15 +755,7 @@
             <div class="title" use:marquee><span>{session.title}</span></div>
             <div class="artist" use:marquee>
               <span>
-                {#if ARTIST_DISPLAY === "both" && session.albumArtist && session.albumArtist.toLowerCase() !== "various artists"}
-                  {getDisplayArtist(session)}
-                {:else if ARTIST_DISPLAY === "album" && session.albumArtist && session.albumArtist.toLowerCase() !== "various artists"}
-                  {session.albumArtist}
-                {:else if ARTIST_DISPLAY === "track" && session.trackArtist}
-                  {session.trackArtist}
-                {:else}
-                  {"Unknown Artist"}
-                {/if}
+                {getRenderedArtist(session)}
               </span>
             </div>
             <div class="album" use:marquee>
@@ -726,6 +786,42 @@
                 {session.product} — {session.player}
                 {#if SHOW_USERNAME && session.user}
                   — {session.user}{/if}
+              </div>
+            {/if}
+
+            {#if textOverlay && i === $activeIndex && session.identityKey === textOverlay.identityKey}
+              <div class="info-overlay ambient-fade-out" aria-hidden="true">
+                <div class="title"><span>{textOverlay.title}</span></div>
+                <div class="artist">
+                  <span>{textOverlay.artist}</span>
+                </div>
+                <div class="album">
+                  <span
+                    >{textOverlay.album}
+                    {#if textOverlay.year}({textOverlay.year}){/if}</span
+                  >
+                </div>
+
+                {#if SHOW_PROGRESS}
+                  <div class="progress-spacer"></div>
+                  <div class="time-spacer"></div>
+                {/if}
+                {#if SHOW_MEDIAINFO}
+                  <div class="mediainfo">{textOverlay.mediainfo}</div>
+                {/if}
+                {#if SHOW_CLIENTINFO && SHOW_MEDIAINFO}
+                  <div class="client">
+                    {textOverlay.product} — {textOverlay.player}
+                    {#if SHOW_USERNAME && textOverlay.user}
+                      — {textOverlay.user}{/if}
+                  </div>
+                {:else if SHOW_CLIENTINFO && !SHOW_MEDIAINFO}
+                  <div class="client-nomediainfo">
+                    {textOverlay.product} — {textOverlay.player}
+                    {#if SHOW_USERNAME && textOverlay.user}
+                      — {textOverlay.user}{/if}
+                  </div>
+                {/if}
               </div>
             {/if}
           </div>

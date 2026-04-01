@@ -21,6 +21,7 @@
   let SHOW_PROGRESS = false;
   let SHOW_MEDIAINFO = true;
   let SHOW_CLIENTINFO = true;
+  const SESSION_ROTATION_MS = 14000;
   const TRACK_TRANSITION_MS = 2800;
   const TRACK_TRANSITION_EASING = "cubic-bezier(0.16, 1, 0.3, 1)";
   const TRACK_TRANSITION_CLEANUP_MS = TRACK_TRANSITION_MS + 150;
@@ -390,7 +391,7 @@
       if (next !== prev) {
         activeIndex.set(next);
       }
-    }, 10000);
+    }, SESSION_ROTATION_MS);
   }
 
   // Find the next playing session index after `current`.
@@ -447,6 +448,14 @@
   const format = (ms) => {
     const s = Math.floor(ms / 1000);
     return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+  };
+
+  const getProgressPercent = (session) => {
+    if (!session?.duration) return 0;
+    return Math.max(
+      0,
+      Math.min(100, (session.localOffset / session.duration) * 100),
+    );
   };
 
   // Format media info string: show codec, samplingRate (kHz) and bitDepth.
@@ -794,39 +803,54 @@
               >
             </div>
 
-            {#if SHOW_PROGRESS}
-              <progress value={session.localOffset} max={session.duration}
-              ></progress>
-              <div class="time">
-                {format(session.localOffset)} / {format(session.duration)}
-              </div>
-            {/if}
-            {#if SHOW_MEDIAINFO}
-              {@const mediaInfo = getMediaInfoParts(session)}
-              <div class="badge-row mediainfo">
-                {#if mediaInfo.codec}
-                  <span class="info-badge codec-badge">{mediaInfo.codec}</span>
-                {/if}
-                {#each mediaInfo.badges as badge}
-                  <span class="info-badge meta-badge">{badge}</span>
-                {/each}
-              </div>
-            {/if}
-            {#if SHOW_CLIENTINFO && SHOW_MEDIAINFO}
-              {@const clientInfo = getClientInfoParts(session)}
-              <div class="badge-row client">
-                {#each clientInfo.badges as badge}
-                  <span class="info-badge meta-badge">{badge}</span>
-                {/each}
-              </div>
-            {:else if SHOW_CLIENTINFO && !SHOW_MEDIAINFO}
-              {@const clientInfo = getClientInfoParts(session)}
-              <div class="badge-row client-nomediainfo">
-                {#each clientInfo.badges as badge}
-                  <span class="info-badge meta-badge">{badge}</span>
-                {/each}
-              </div>
-            {/if}
+            <div class="meta-stack">
+              {#if SHOW_PROGRESS}
+                <div
+                  class="progress-track"
+                  role="progressbar"
+                  aria-label="Track progress"
+                  aria-valuemin="0"
+                  aria-valuemax={session.duration}
+                  aria-valuenow={session.localOffset}
+                >
+                  <div
+                    class="progress-fill"
+                    style={`width: ${getProgressPercent(session)}%;`}
+                  >
+                    <div class="progress-cap"></div>
+                  </div>
+                </div>
+                <div class="time">
+                  {format(session.localOffset)} / {format(session.duration)}
+                </div>
+              {/if}
+              {#if SHOW_MEDIAINFO}
+                {@const mediaInfo = getMediaInfoParts(session)}
+                <div class="badge-row mediainfo">
+                  {#if mediaInfo.codec}
+                    <span class="info-badge codec-badge">{mediaInfo.codec}</span>
+                  {/if}
+                  {#each mediaInfo.badges as badge}
+                    <span class="info-badge meta-badge">{badge}</span>
+                  {/each}
+                </div>
+              {/if}
+              {#if SHOW_CLIENTINFO && SHOW_MEDIAINFO}
+                {@const clientInfo = getClientInfoParts(session)}
+                <div class="badge-row client">
+                  {#each clientInfo.badges as badge}
+                    <span class="info-badge meta-badge">{badge}</span>
+                  {/each}
+                </div>
+              {:else if SHOW_CLIENTINFO && !SHOW_MEDIAINFO}
+                {@const clientInfo = getClientInfoParts(session)}
+                <div class="badge-row client-nomediainfo">
+                  {#each clientInfo.badges as badge}
+                    <span class="info-badge meta-badge">{badge}</span>
+                  {/each}
+                </div>
+              {/if}
+            </div>
 
             {#if textOverlay && i === $activeIndex && session.identityKey === textOverlay.identityKey}
               <div class="info-overlay ambient-fade-out" aria-hidden="true">

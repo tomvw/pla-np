@@ -117,47 +117,50 @@ body {
   opacity: 0.6;
 }
 
-progress {
+.progress-track {
   width: 100%;
   height: 0.9rem;
   margin-top: 0.9rem;
-  appearance: none;
-  -webkit-appearance: none;
-  border: 1px solid rgba(255, 255, 255, 0.16);
+  position: relative;
+  border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 999px;
   overflow: hidden;
   background:
-    linear-gradient(135deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.03)),
-    rgba(8, 10, 18, 0.5);
+    linear-gradient(135deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.015)),
+    rgba(8, 10, 18, 0.24);
   box-shadow:
-    0 10px 30px rgba(0, 0, 0, 0.2),
+    0 10px 26px rgba(0, 0, 0, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    inset 0 -1px 3px rgba(0, 0, 0, 0.18);
+}
+
+.progress-fill {
+  position: absolute;
+  left: 2px;
+  top: 2px;
+  bottom: 2px;
+  min-width: 0;
+  border-radius: 999px;
+  background:
+    linear-gradient(90deg, rgba(196, 202, 216, 0.5), rgba(172, 180, 198, 0.5) 52%, rgba(132, 142, 162, 0.44));
+  box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.08),
-    inset 0 -1px 3px rgba(0, 0, 0, 0.35);
-  backdrop-filter: blur(18px) saturate(140%);
-  -webkit-backdrop-filter: blur(18px) saturate(140%);
+    0 0 8px rgba(122, 138, 168, 0.06);
+  transition: width 180ms linear;
 }
 
-progress::-webkit-progress-bar {
-  background: transparent;
-}
-
-progress::-webkit-progress-value {
-  border-radius: 999px;
-  background:
-    linear-gradient(90deg, rgba(255, 255, 255, 0.7), rgba(214, 228, 255, 0.74) 52%, rgba(150, 186, 255, 0.68));
+.progress-cap {
+  position: absolute;
+  right: 0;
+  top: 50%;
+  width: 0.72rem;
+  height: 0.72rem;
+  border-radius: 50%;
+  background: rgba(214, 220, 232, 0.72);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.18),
-    0 0 12px rgba(150, 186, 255, 0.12);
-}
-
-progress::-moz-progress-bar {
-  border: none;
-  border-radius: 999px;
-  background:
-    linear-gradient(90deg, rgba(255, 255, 255, 0.7), rgba(214, 228, 255, 0.74) 52%, rgba(150, 186, 255, 0.68));
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.18),
-    0 0 12px rgba(150, 186, 255, 0.12);
+    0 0 0 2px rgba(255, 255, 255, 0.06),
+    0 0 10px rgba(122, 138, 168, 0.08);
+  transform: translate(35%, -50%);
 }
 /* Prevent long marquee text from crowding the right edge of the progress bar */
 @media (orientation: landscape) and (min-width: 900px) {
@@ -169,6 +172,10 @@ progress::-moz-progress-bar {
   margin-top: 0.25rem;
   font-size: 0.85rem;
   opacity: 0.7;
+}
+.meta-stack {
+  position: relative;
+  isolation: isolate;
 }
 .client {
   margin-top: 0.6rem;
@@ -203,33 +210,30 @@ progress::-moz-progress-bar {
   box-shadow:
     0 10px 30px rgba(0, 0, 0, 0.25),
     inset 0 1px 0 rgba(255, 255, 255, 0.14);
-  backdrop-filter: blur(18px) saturate(140%);
-  -webkit-backdrop-filter: blur(18px) saturate(140%);
   color: rgba(255, 255, 255, 0.98);
   font-size: 0.68rem;
   font-weight: 600;
   letter-spacing: 0.03em;
   line-height: 1;
-  opacity: 0;
-  transform: translateY(8px) scale(0.985);
-  will-change: opacity, transform;
-}
-
-.fade-slide.visible .info-badge {
-  animation: ambient-badge-in var(--track-transition-duration) var(--track-transition-easing) forwards;
+  opacity: 1;
+  transform: none;
 }
 
 .codec-badge {
   font-weight: 700;
   letter-spacing: 0.09em;
   text-transform: uppercase;
-  background:
-    linear-gradient(135deg, rgba(255, 255, 255, 0.28), rgba(255, 255, 255, 0.1)),
-    rgba(10, 14, 26, 0.72);
 }
 
 .meta-badge {
   color: rgba(255, 255, 255, 0.9);
+}
+
+.client .info-badge,
+.client-nomediainfo .info-badge {
+  opacity: 1;
+  transform: none;
+  animation: none;
 }
 
 .info-overlay {
@@ -352,8 +356,12 @@ progress::-moz-progress-bar {
     white-space: normal;
     overflow: hidden; /* clip marquee so it can't scroll past .info */
   }
-  progress {
+  .progress-track {
     height: 0.78rem;
+  }
+  .progress-cap {
+    width: 0.62rem;
+    height: 0.62rem;
   }
   .client {
     opacity: 0.8;

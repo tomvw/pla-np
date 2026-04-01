@@ -173,6 +173,13 @@ progress {
   font-weight: 600;
   letter-spacing: 0.03em;
   line-height: 1;
+  opacity: 0;
+  transform: translateY(8px) scale(0.985);
+  will-change: opacity, transform;
+}
+
+.fade-slide.visible .info-badge {
+  animation: ambient-badge-in var(--track-transition-duration) var(--track-transition-easing) forwards;
 }
 
 .codec-badge {
@@ -337,5 +344,16 @@ progress {
     opacity: 0;
     filter: blur(10px);
     transform: translateY(8px);
+  }
+}
+
+@keyframes ambient-badge-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
   }
 }

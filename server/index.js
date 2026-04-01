@@ -112,6 +112,18 @@ function loadConfig() {
   }
 }
 
+function ensureFreshConfig() {
+  try {
+    const stat = fs.statSync(cfgPath);
+    if (stat.mtimeMs !== configVersion) {
+      console.log("plex.config.json changed — reloading config");
+      loadConfig();
+    }
+  } catch (err) {
+    console.warn("Failed to stat server config:", err.message);
+  }
+}
+
 // initial load
 loadConfig();
 
@@ -137,6 +149,7 @@ if (fs.existsSync(distPath)) {
 
 // API: return public config (without token)
 app.get("/api/config", (req, res) => {
+  ensureFreshConfig();
   const { PLEX_TOKEN, ...publicCfg } = config || {};
   res.json({
     CONFIG_VERSION: publicCfg.CONFIG_VERSION || configVersion,
@@ -154,6 +167,7 @@ app.get("/api/config", (req, res) => {
 
 // API: proxy sessions XML from Plex, keeping token server-side
 app.get("/api/sessions", async (req, res) => {
+  ensureFreshConfig();
   if (!config || !config.PLEX_URL || !config.PLEX_TOKEN) {
     return res.status(500).send("Plex config not available");
   }
@@ -170,6 +184,7 @@ app.get("/api/sessions", async (req, res) => {
 
 // API: proxy artwork/thumbs so token is not exposed to clients
 app.get("/api/art", async (req, res) => {
+  ensureFreshConfig();
   const thumb = req.query.thumb;
   if (!thumb) return res.status(400).send("Missing thumb");
   if (!config || !config.PLEX_URL || !config.PLEX_TOKEN)

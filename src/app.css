@@ -119,8 +119,45 @@ body {
 
 progress {
   width: 100%;
-  height: 8px;
-  margin-top: 0.75rem;
+  height: 0.9rem;
+  margin-top: 0.9rem;
+  appearance: none;
+  -webkit-appearance: none;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 999px;
+  overflow: hidden;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.03)),
+    rgba(8, 10, 18, 0.5);
+  box-shadow:
+    0 10px 30px rgba(0, 0, 0, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    inset 0 -1px 3px rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(18px) saturate(140%);
+  -webkit-backdrop-filter: blur(18px) saturate(140%);
+}
+
+progress::-webkit-progress-bar {
+  background: transparent;
+}
+
+progress::-webkit-progress-value {
+  border-radius: 999px;
+  background:
+    linear-gradient(90deg, rgba(255, 255, 255, 0.7), rgba(214, 228, 255, 0.74) 52%, rgba(150, 186, 255, 0.68));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.18),
+    0 0 12px rgba(150, 186, 255, 0.12);
+}
+
+progress::-moz-progress-bar {
+  border: none;
+  border-radius: 999px;
+  background:
+    linear-gradient(90deg, rgba(255, 255, 255, 0.7), rgba(214, 228, 255, 0.74) 52%, rgba(150, 186, 255, 0.68));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.18),
+    0 0 12px rgba(150, 186, 255, 0.12);
 }
 /* Prevent long marquee text from crowding the right edge of the progress bar */
 @media (orientation: landscape) and (min-width: 900px) {
@@ -316,7 +353,7 @@ progress {
     overflow: hidden; /* clip marquee so it can't scroll past .info */
   }
   progress {
-    height: 6px;
+    height: 0.78rem;
   }
   .client {
     opacity: 0.8;

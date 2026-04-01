@@ -25,6 +25,14 @@
   const TRACK_TRANSITION_EASING = "cubic-bezier(0.16, 1, 0.3, 1)";
   const TRACK_TRANSITION_CLEANUP_MS = TRACK_TRANSITION_MS + 150;
 
+  function getSyncedOffset(track, now = Date.now()) {
+    if (!track) return 0;
+    if (track.state !== "playing") return track.syncedOffset ?? track.localOffset ?? 0;
+    const baseOffset = track.syncedOffset ?? track.localOffset ?? 0;
+    const syncedAt = track.syncedAt ?? now;
+    return Math.min(baseOffset + Math.max(0, now - syncedAt), track.duration || 0);
+  }
+
   function getSessionIdentity(track) {
     return (
       track.sessionKey ||
@@ -147,6 +155,7 @@
       const xml = parser.parseFromString(xmlText, "application/xml");
 
       const rawNodes = Array.from(xml.querySelectorAll("Track"));
+      const fetchedAt = Date.now();
       let newTracks = rawNodes.map((track) => {
         const player = track.querySelector("Player");
         const user = track.querySelector("User");
@@ -239,6 +248,8 @@
 
         return {
           ...session,
+          syncedOffset: session.localOffset,
+          syncedAt: fetchedAt,
           identityKey: getSessionIdentity(session),
           trackSignature: getTrackSignature(session),
         };
@@ -303,7 +314,10 @@
           return { ...track };
         }
 
-        return { ...track, localOffset: existing.localOffset };
+        return {
+          ...track,
+          localOffset: getSyncedOffset(track, fetchedAt),
+        };
       });
 
       let nextActiveIndex = 0;
@@ -355,14 +369,15 @@
   function startProgress() {
     clearInterval(progressTimer);
     progressTimer = setInterval(() => {
+      const now = Date.now();
       sessions.update((list) =>
         list.map((s) =>
           s.state === "playing"
-            ? { ...s, localOffset: Math.min(s.localOffset + 1000, s.duration) }
+            ? { ...s, localOffset: getSyncedOffset(s, now) }
             : s,
         ),
       );
-    }, 1000);
+    }, 250);
   }
 
   function startSlideshow() {

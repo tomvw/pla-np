@@ -13,6 +13,7 @@
   let config;
   let configLoaded = false;
   let configVersion = null;
+  let pageVisible = true;
 
   let ALLOWED_PLAYERS = [];
   let ALLOWED_USERS = [];
@@ -26,6 +27,7 @@
   const TRACK_TRANSITION_MS = 2800;
   const TRACK_TRANSITION_EASING = "cubic-bezier(0.16, 1, 0.3, 1)";
   const TRACK_TRANSITION_CLEANUP_MS = TRACK_TRANSITION_MS + 150;
+  let handleVisibilityChange = null;
 
   function getSyncedOffset(track, now = Date.now()) {
     if (!track) return 0;
@@ -382,8 +384,11 @@
   function startProgress() {
     clearInterval(progressTimer);
     progressTimer = setInterval(() => {
+      if (!pageVisible) return;
       const now = Date.now();
       const currentIndex = get(activeIndex) || 0;
+      const currentSession = get(sessions)[currentIndex];
+      if (!currentSession || currentSession.state !== "playing") return;
       sessions.update((list) =>
         list.map((s, index) =>
           index === currentIndex && s.state === "playing"
@@ -391,12 +396,14 @@
             : s,
         ),
       );
-    }, 500);
+    }, 750);
   }
 
   function startSlideshow() {
     clearInterval(rotationTimer);
+    if (get(sessions).length <= 1) return;
     rotationTimer = setInterval(() => {
+      if (!pageVisible) return;
       const list = get(sessions);
       if (!list.length) return;
       const prev = get(activeIndex) || 0;
@@ -422,6 +429,7 @@
   function startAutoRefresh() {
     clearInterval(refreshTimer);
     refreshTimer = setInterval(async () => {
+      if (!pageVisible) return;
       await loadConfig({ reloadOnChange: true });
       fetchNowPlaying();
     }, 15000);
@@ -511,12 +519,11 @@
 
     span.style.display = "inline-block";
     span.style.whiteSpace = "nowrap";
-    span.style.willChange = "transform";
 
     const slide = node.closest(".fade-slide");
     const isActive = () => {
       if (!slide) return true;
-      return slide.classList.contains("visible");
+      return pageVisible && slide.classList.contains("visible");
     };
 
     let animation = null;
@@ -716,6 +723,17 @@
 
     if (!configLoaded) return;
 
+    handleVisibilityChange = () => {
+      pageVisible = document.visibilityState === "visible";
+      if (pageVisible) {
+        fetchNowPlaying();
+        startProgress();
+        startSlideshow();
+        startAutoRefresh();
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
     fetchNowPlaying();
     if (SHOW_PROGRESS) {
       startProgress();
@@ -729,6 +747,9 @@
     clearInterval(rotationTimer);
     clearInterval(refreshTimer);
     if (textOverlayTimer) clearTimeout(textOverlayTimer);
+    if (handleVisibilityChange) {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    }
   });
 </script>
 

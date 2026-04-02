@@ -856,6 +856,9 @@
             <div class="meta-stack">
               {#if SHOW_PROGRESS}
                 <div class="progress-block">
+                  <div class="time time-start">
+                    {format(session.localOffset)}
+                  </div>
                   <div
                     class="progress-track"
                     role="progressbar"
@@ -871,8 +874,8 @@
                       <div class="progress-cap"></div>
                     </div>
                   </div>
-                  <div class="time">
-                    {format(session.localOffset)} / {format(session.duration)}
+                  <div class="time time-end">
+                    {format(session.duration)}
                   </div>
                 </div>
               {/if}

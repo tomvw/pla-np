@@ -124,15 +124,15 @@ body {
 .progress-block {
   margin-top: 0.9rem;
   display: grid;
-  gap: 0.22rem;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 0.7rem;
   width: 100%;
 }
 
 .progress-track {
   width: 100%;
   height: 0.9rem;
-  margin-left: auto;
-  margin-right: auto;
   position: relative;
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 999px;
@@ -182,12 +182,19 @@ body {
 }
 .time {
   margin-top: 0;
-  width: calc(100% - 4px);
-  margin-left: 2px;
   font-size: 0.8rem;
   opacity: 0.64;
   text-align: left;
   letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+.time-start {
+  justify-self: start;
+}
+
+.time-end {
+  justify-self: end;
 }
 .meta-stack {
   position: relative;
@@ -377,6 +384,18 @@ body {
     width: calc(100% - 0.35rem);
     height: 0.78rem;
   }
+  .progress-block {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    column-gap: 0.55rem;
+    align-items: center;
+  }
+  .time-start,
+  .time-end {
+    justify-self: center;
+  }
+  .progress-track {
+    width: 100%;
+  }
   .progress-cap {
     width: 0.62rem;
     height: 0.62rem;
@@ -385,8 +404,6 @@ body {
     opacity: 0.8;
   }
   .time {
-    width: 100%;
-    margin-left: 0;
     text-align: center;
   }
   .badge-row {

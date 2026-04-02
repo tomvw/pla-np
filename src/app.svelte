@@ -383,14 +383,15 @@
     clearInterval(progressTimer);
     progressTimer = setInterval(() => {
       const now = Date.now();
+      const currentIndex = get(activeIndex) || 0;
       sessions.update((list) =>
-        list.map((s) =>
-          s.state === "playing"
+        list.map((s, index) =>
+          index === currentIndex && s.state === "playing"
             ? { ...s, localOffset: getSyncedOffset(s, now) }
             : s,
         ),
       );
-    }, 250);
+    }, 500);
   }
 
   function startSlideshow() {
@@ -503,120 +504,6 @@
     return [codec, details].filter(Boolean).join(" — ");
   };
 
-  const slideMarqueeControllers = new WeakMap();
-
-  function getSlideMarqueeController(slide, { baseSpeed, pauseDuration }) {
-    let controller = slideMarqueeControllers.get(slide);
-    if (controller) return controller;
-
-    const subscribers = new Set();
-    let frame = null;
-    let lastTime = 0;
-    let paused = true;
-    let pauseRemaining = pauseDuration;
-    let direction = 1;
-    let progress = 0;
-
-    const isActive = () => slide.classList.contains("visible");
-
-    function getMaxDistance() {
-      let maxDistance = 0;
-      subscribers.forEach((subscriber) => {
-        maxDistance = Math.max(maxDistance, subscriber.getDistance());
-      });
-      return maxDistance;
-    }
-
-    function notify() {
-      subscribers.forEach((subscriber) => {
-        subscriber.update({ progress, paused, direction, active: isActive() });
-      });
-    }
-
-    function step(time) {
-      frame = null;
-
-      if (!isActive()) {
-        progress = 0;
-        paused = true;
-        pauseRemaining = pauseDuration;
-        direction = 1;
-        notify();
-        frame = requestAnimationFrame(step);
-        return;
-      }
-
-      if (!lastTime) lastTime = time;
-      const delta = time - lastTime;
-      lastTime = time;
-
-      const maxDistance = getMaxDistance();
-      if (maxDistance <= 0) {
-        progress = 0;
-        paused = true;
-        pauseRemaining = pauseDuration;
-        direction = 1;
-        notify();
-        frame = requestAnimationFrame(step);
-        return;
-      }
-
-      if (paused) {
-        pauseRemaining -= delta;
-        if (pauseRemaining <= 0) {
-          paused = false;
-          pauseRemaining = 0;
-        }
-      } else {
-        const travelTime = Math.max((maxDistance / baseSpeed) * 1000, 1);
-        const deltaProgress = delta / travelTime;
-        progress += direction * deltaProgress;
-
-        if (progress >= 1) {
-          progress = 1;
-          direction = -1;
-          paused = true;
-          pauseRemaining = pauseDuration;
-        } else if (progress <= 0) {
-          progress = 0;
-          direction = 1;
-          paused = true;
-          pauseRemaining = pauseDuration;
-        }
-      }
-
-      notify();
-      frame = requestAnimationFrame(step);
-    }
-
-    function ensureRunning() {
-      if (frame) return;
-      lastTime = 0;
-      frame = requestAnimationFrame(step);
-    }
-
-    controller = {
-      subscribe(subscriber) {
-        subscribers.add(subscriber);
-        ensureRunning();
-        notify();
-      },
-      unsubscribe(subscriber) {
-        subscribers.delete(subscriber);
-        if (!subscribers.size && frame) {
-          cancelAnimationFrame(frame);
-          frame = null;
-        }
-      },
-      refresh() {
-        notify();
-      },
-    };
-
-    slideMarqueeControllers.set(slide, controller);
-    return controller;
-  }
-
   // Slower marquee with pause
   export function marquee(node, { baseSpeed = 30, pauseDuration = 2000 } = {}) {
     const span = node.querySelector("span");
@@ -626,67 +513,88 @@
     span.style.whiteSpace = "nowrap";
     span.style.willChange = "transform";
 
-    let containerWidth = node.clientWidth;
-    let textWidth = span.scrollWidth;
-
     const slide = node.closest(".fade-slide");
     const isActive = () => {
       if (!slide) return true;
       return slide.classList.contains("visible");
     };
 
-    function getDistance() {
-      containerWidth = node.clientWidth;
-      textWidth = span.scrollWidth;
-      return Math.max(0, textWidth - containerWidth);
-    }
+    let animation = null;
 
-    function updatePosition({ progress, active }) {
-      const distance = getDistance();
-      if (!active || distance <= 0) {
-        span.style.transform = "";
-        return;
+    function stopAnimation(reset = true) {
+      if (animation) {
+        animation.cancel();
+        animation = null;
       }
-      span.style.transform = `translateX(${-distance * progress}px)`;
+      if (reset) span.style.transform = "";
     }
 
-    const subscriber = {
-      getDistance,
-      update: updatePosition,
-    };
+    function refreshAnimation() {
+      stopAnimation();
 
-    const controller = slide
-      ? getSlideMarqueeController(slide, { baseSpeed, pauseDuration })
-      : null;
+      if (!isActive()) return;
 
-    if (controller) {
-      controller.subscribe(subscriber);
-    } else {
-      updatePosition({ progress: 0, active: true });
+      const distance = Math.max(0, span.scrollWidth - node.clientWidth);
+      if (distance <= 0) return;
+
+      const travelTime = Math.max((distance / baseSpeed) * 1000, 1);
+      const totalDuration = travelTime + pauseDuration * 2;
+      const pauseRatio = pauseDuration / totalDuration;
+
+      animation = span.animate(
+        [
+          { transform: "translateX(0px)", offset: 0 },
+          { transform: "translateX(0px)", offset: pauseRatio },
+          {
+            transform: `translateX(${-distance}px)`,
+            offset: 1 - pauseRatio,
+          },
+          { transform: `translateX(${-distance}px)`, offset: 1 },
+        ],
+        {
+          duration: totalDuration,
+          iterations: Infinity,
+          direction: "alternate",
+          easing: "linear",
+          fill: "both",
+        },
+      );
     }
 
     const resizeObserver = new ResizeObserver(() => {
-      if (controller) {
-        controller.refresh();
-      } else {
-        updatePosition({ progress: 0, active: true });
-      }
+      refreshAnimation();
     });
     resizeObserver.observe(node);
 
     let mo = null;
     if (slide) {
       mo = new MutationObserver(() => {
-        controller?.refresh();
+        if (isActive()) {
+          refreshAnimation();
+        } else {
+          stopAnimation();
+        }
       });
       mo.observe(slide, { attributes: true, attributeFilter: ["class"] });
     }
 
+    const textObserver = new MutationObserver(() => {
+      refreshAnimation();
+    });
+    textObserver.observe(span, {
+      childList: true,
+      characterData: true,
+      subtree: true,
+    });
+
+    refreshAnimation();
+
     return {
       destroy() {
-        controller?.unsubscribe(subscriber);
+        stopAnimation();
         resizeObserver.disconnect();
         if (mo) mo.disconnect();
+        textObserver.disconnect();
         span.style.transform = "";
       },
     };

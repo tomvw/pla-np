@@ -31,18 +31,15 @@ body {
   opacity: 0;
   transition:
     opacity var(--track-transition-duration) var(--track-transition-easing),
-    transform var(--track-transition-duration) var(--track-transition-easing),
-    filter var(--track-transition-duration) var(--track-transition-easing);
-  transform: scale(1.035);
-  filter: blur(14px);
+    transform var(--track-transition-duration) var(--track-transition-easing);
+  transform: scale(1.02);
   padding-inline: 2rem;
   box-sizing: border-box;
-  will-change: opacity, transform, filter;
+  will-change: opacity, transform;
 }
 .fade-slide.visible {
   opacity: 1;
   transform: scale(1);
-  filter: blur(0);
 }
 
 /* Prevent marquee transforms from causing horizontal scrolling */
@@ -287,7 +284,7 @@ body {
   inset: 0;
   background-size: cover;
   background-position: center;
-  filter: blur(32px) brightness(0.45);
+  filter: blur(24px) brightness(0.45);
   transform: scale(1.15);
   z-index: -1;
 }
@@ -297,7 +294,7 @@ body {
   inset: 0;
   background-size: cover;
   background-position: center;
-  filter: blur(32px) brightness(0.45);
+  filter: blur(24px) brightness(0.45);
   transform: scale(1.15);
   z-index: -1;
   will-change: opacity;

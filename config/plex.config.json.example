@@ -5,5 +5,7 @@
   "USERS": ["user1", "user2"],
   "LIBRARIES": ["libary1", "library2"],
   "SHOW_USERNAME": true,
+  "SHOW_MEDIAINFO": true,
+  "SHOW_CLIENTINFO": true,
   "SHOW_PROGRESS": true
 }

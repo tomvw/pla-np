@@ -23,7 +23,7 @@ docker run -d \
   -p 3000:3000 \
   -v /path/to/config:/app/config:ro \
   --restart unless-stopped \
-  tomvw/pla-np:latest
+  ghcr.io/tomvw/pla-np:latest
 ```
 
 or docker compose:
@@ -31,7 +31,7 @@ or docker compose:
 ```yaml
 services:
   pla-np:
-    image: tomvw/pla-np:latest
+    image: ghcr.io/tomvw/pla-np:latest
     container_name: pla-np
     ports:
       - "3000:3000"

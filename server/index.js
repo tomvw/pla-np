@@ -355,8 +355,9 @@ app.post("/api/cache-clear", async (req, res) => {
   }
 });
 
-// Fallback to index.html for SPA routes (but don't catch API routes)
-app.get("*", (req, res) => {
+// Fallback to index.html for SPA routes (but don't catch API routes).
+// Express 5 requires named wildcards; `/{*splat}` also matches `/`.
+app.get("/{*splat}", (req, res) => {
   if (req.path && req.path.startsWith("/api/"))
     return res.status(404).send("Not found");
   const indexPath = path.resolve(distPath, "index.html");

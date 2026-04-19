@@ -99,6 +99,12 @@ let config = {};
 let configVersion = "";
 const cfgPath = path.resolve(__dirname, "..", "config", "plex.config.json");
 
+function isImageCacheEnabled() {
+  return config.IMAGE_CACHE_ENABLED === undefined
+    ? true
+    : Boolean(config.IMAGE_CACHE_ENABLED);
+}
+
 function loadConfig() {
   try {
     const raw = fs.readFileSync(cfgPath, "utf8");
@@ -217,38 +223,41 @@ app.get("/api/art", async (req, res) => {
     const hash = crypto.createHash("sha256").update(keyStr).digest("hex");
     const dataPath = path.join(CACHE_DIR, hash);
     const metaPath = dataPath + ".json";
+    const cacheEnabled = isImageCacheEnabled();
 
     // Try cache hit
-    try {
-      const metaRaw = await fs.promises
-        .readFile(metaPath, "utf8")
-        .catch(() => null);
-      if (metaRaw) {
-        const meta = JSON.parse(metaRaw);
-        if (Date.now() - (meta.timestamp || 0) <= CACHE_TTL * 1000) {
-          const stat = await fs.promises.stat(dataPath).catch(() => null);
-          if (stat) {
-            CACHE_HITS++;
-            res.set("content-type", meta.contentType || "image/jpeg");
-            res.set(
-              "cache-control",
-              `public, max-age=${Math.min(CACHE_TTL, 86400)}`,
-            );
-            return res.sendFile(dataPath);
+    if (cacheEnabled) {
+      try {
+        const metaRaw = await fs.promises
+          .readFile(metaPath, "utf8")
+          .catch(() => null);
+        if (metaRaw) {
+          const meta = JSON.parse(metaRaw);
+          if (Date.now() - (meta.timestamp || 0) <= CACHE_TTL * 1000) {
+            const stat = await fs.promises.stat(dataPath).catch(() => null);
+            if (stat) {
+              CACHE_HITS++;
+              res.set("content-type", meta.contentType || "image/jpeg");
+              res.set(
+                "cache-control",
+                `public, max-age=${Math.min(CACHE_TTL, 86400)}`,
+              );
+              return res.sendFile(dataPath);
+            }
+          } else {
+            // expired
+            await Promise.all([
+              fs.promises.unlink(dataPath).catch(() => {}),
+              fs.promises.unlink(metaPath).catch(() => {}),
+            ]);
           }
-        } else {
-          // expired
-          await Promise.all([
-            fs.promises.unlink(dataPath).catch(() => {}),
-            fs.promises.unlink(metaPath).catch(() => {}),
-          ]);
         }
+      } catch (err) {
+        console.warn("Cache read error", err);
       }
-    } catch (err) {
-      console.warn("Cache read error", err);
     }
 
-    // Miss: fetch from Plex and cache
+    // Miss: fetch from Plex and cache when enabled
     CACHE_MISSES++;
     const sep = targetUrl.includes("?") ? "&" : "?";
     const fetchUrl = `${targetUrl}${sep}X-Plex-Token=${config.PLEX_TOKEN}`;
@@ -257,14 +266,21 @@ app.get("/api/art", async (req, res) => {
     const contentType = proxied.headers.get("content-type") || "image/jpeg";
     const buffer = Buffer.from(await proxied.arrayBuffer());
 
-    // atomic write
-    await fs.promises.writeFile(dataPath + ".tmp", buffer);
-    await fs.promises.rename(dataPath + ".tmp", dataPath);
-    const meta = { timestamp: Date.now(), contentType, size: buffer.length };
-    await fs.promises.writeFile(metaPath, JSON.stringify(meta));
+    if (cacheEnabled) {
+      // atomic write
+      await fs.promises.writeFile(dataPath + ".tmp", buffer);
+      await fs.promises.rename(dataPath + ".tmp", dataPath);
+      const meta = { timestamp: Date.now(), contentType, size: buffer.length };
+      await fs.promises.writeFile(metaPath, JSON.stringify(meta));
+    }
 
     res.set("content-type", contentType);
-    res.set("cache-control", `public, max-age=${Math.min(CACHE_TTL, 86400)}`);
+    res.set(
+      "cache-control",
+      cacheEnabled
+        ? `public, max-age=${Math.min(CACHE_TTL, 86400)}`
+        : "no-store",
+    );
     res.send(buffer);
   } catch (err) {
     console.error("Error proxying art:", err);
@@ -310,6 +326,7 @@ app.get("/api/cache-stats", async (req, res) => {
         ? CACHE_HITS / (CACHE_HITS + CACHE_MISSES)
         : null;
     res.json({
+      enabled: isImageCacheEnabled(),
       hits: CACHE_HITS,
       misses: CACHE_MISSES,
       requests: CACHE_REQUESTS,

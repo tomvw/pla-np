@@ -4,18 +4,18 @@ A Plex/Plexamp Now Playing page made in Svelte 5.
 
 ## Features
 
-- **Responsive design:** Supports displays from 480p up to 4K, both in portrait and landscape
-- **Supports multiple sessions:** When multiple players are active, a slideshow will cycle between them
-- **Customizable:** Toggle certain UI elements on and off to suit your taste
-- **Filtering:** Filter by players, users or libraries
+- Responsive layout from 480p to 4K, in both portrait and landscape
+- Multi-session slideshow when more than one player is active
+- Configurable UI options for a cleaner or more detailed display
+- Optional filtering by players, users, and libraries
 
 ## Installation
 
 ### Docker
 
-Copy the example `plex.config.json.example` to `/path/to/config`, rename it to `plex.config.json` and edit.
+Copy `plex.config.json.example` to your config directory, rename it to `plex.config.json`, and edit it.
 
-Docker run:
+Run with Docker:
 
 ```bash
 docker run -d \
@@ -44,13 +44,13 @@ services:
 
 This project targets Node `25.9.0` and npm `11.12.1`.
 
-If you use `nvm`, run:
+If you use `nvm`:
 
 ```bash
 nvm use
 ```
 
-Clone the repo, edit and rename `plex.config.json.example` and run the following commands:
+Then clone the repo, create `config/plex.config.json`, and run:
 
 ```bash
 npm ci
@@ -58,11 +58,11 @@ npm run build
 npm start
 ```
 
-Your instance will be available at `http://localhost:3000`
+The app will be available at `http://localhost:3000`.
 
 ## Configuration
 
-Example config file:
+Example `plex.config.json`:
 
 ```json
 {
@@ -76,38 +76,83 @@ Example config file:
   "SHOW_MEDIAINFO": true,
   "SHOW_CLIENTINFO": true,
   "SHOW_PROGRESS": false,
-  "LOW_POWER_MODE": false
+  "LOW_POWER_MODE": false,
+  "IMAGE_CACHE_ENABLED": true
 }
 ```
 
 Config reference:
 
-| Option              | Values                               | Explanation                                                                         |
-| :------------------ | ------------------------------------ | ----------------------------------------------------------------------------------- |
-| **`PLEX_URL`**        | `"http://your.plex.url"`             | The URL of your Plex instance[^1]                                                   |
-| **`PLEX_TOKEN`**      | `"your-plex-token"`                  | Your Plex token[^2]                                                                     |
-| **`PLAYERS`**         | `["rapsberrypi", "android"]` or `[]` | A comma-seperated list of players you want to filter by or empty for no filtering   |
-| **`USERS`**           | `["bob", "jane"]` or `[]`            | A comma-seperated list of users you want to filter by or empty for no filtering     |
-| **`LIBRARIES`**       | `["music", "chiptunes"]` or `[]`     | A comma-seperated list of libraries you want to filter by or empty for no filtering |
-| **`ARTIST_DISPLAY`**  | `"track"`, `"album"` or `"both"`     | Shows either track artist, album artist or both                                     |
-| **`SHOW_USERNAME`**   | `true` or `false`                    | Show usernames                                                                      |
-| **`SHOW_MEDIAINFO`**  | `true` or `false`                    | Show media info (codec, sampling rate, bit depth, bitrate)                          |
-| **`SHOW_CLIENTINFO`** | `true` or `false`                    | Show client info (player, device, user)                                             |
-| **`SHOW_PROGRESS`**   | `true` or `false`                    | Show the song progress bar[^3]                                                      |
-| **`LOW_POWER_MODE`**  | `true` or `false`                    | Reduces animations and effects, lowers polling frequency, and replaces marquee text with ellipsis for lower powered devices               |
+| Option | Values | Description |
+| :-- | :-- | :-- |
+| `PLEX_URL` | `"http://your.plex.url"` | URL of your Plex instance[^1] |
+| `PLEX_TOKEN` | `"your-plex-token"` | Plex token[^2] |
+| `PLAYERS` | `["raspberrypi", "android"]` or `[]` | List of players to include, or empty for no filtering |
+| `USERS` | `["bob", "jane"]` or `[]` | List of users to include, or empty for no filtering |
+| `LIBRARIES` | `["music", "chiptunes"]` or `[]` | List of libraries to include, or empty for no filtering |
+| `ARTIST_DISPLAY` | `"track"`, `"album"` or `"both"` | Show track artist, album artist, or both |
+| `SHOW_USERNAME` | `true` or `false` | Show usernames |
+| `SHOW_MEDIAINFO` | `true` or `false` | Show codec, sampling rate, bit depth, and bitrate |
+| `SHOW_CLIENTINFO` | `true` or `false` | Show player, device, and user info |
+| `SHOW_PROGRESS` | `true` or `false` | Show the song progress bar[^3] |
+| `LOW_POWER_MODE` | `true` or `false` | Reduce effects, lower refresh work, and replace marquee text with ellipsis |
+| `IMAGE_CACHE_ENABLED` | `true` or `false` | Enable or disable the server-side artwork cache |
+
+## Image Cache
+
+Artwork requested through `/api/art` is cached on the server by default to reduce repeat Plex fetches and make slide changes smoother.
+
+Disable the cache in `plex.config.json`:
+
+```json
+"IMAGE_CACHE_ENABLED": false
+```
+
+When disabled, artwork is fetched directly from Plex for each request and the server responds with `Cache-Control: no-store`.
+
+Check cache stats:
+
+```text
+http://localhost:3000/api/cache-stats
+```
+
+The response includes whether the cache is enabled, request counters, hit rate, file count, total size, and the largest cached items.
+
+Clear the cache:
+
+```text
+http://localhost:3000/api/cache-clear
+```
+
+Example:
+
+```bash
+curl -X POST http://localhost:3000/api/cache-clear
+```
+
+Clear the cache and reset the counters:
+
+```bash
+curl -X POST "http://localhost:3000/api/cache-clear?reset=true"
+```
 
 ## Screenshots
 
-Landscape view:
+Landscape:
 ![Landscape](/src/assets/images/landscape.png "Landscape")
-Portrait view:
+
+Portrait:
 ![Portrait](/src/assets/images/portrait.png "Portrait")
-Minimal view:
+
+Minimal:
 ![Minimal](/src/assets/images/minimal.png "Minimal")
-Low-power view:
+
+Low-power:
 ![Low-power](/src/assets/images/lowpower.png "Low-power")
 
-#### ⚠️This project was vibe-coded using Codex
+## Notes
+
+This project was built with Codex.
 
 [^1]: _Doesn't support self-signed certificates_
 [^2]: https://support.plex.tv/articles/204059436-finding-an-authentication-token-x-plex-token/

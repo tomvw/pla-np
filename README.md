@@ -2,18 +2,20 @@
 
 A Plex/Plexamp Now Playing page made in Svelte 5.
 
+This project was built with Codex.
+
 ## Features
 
-- Responsive layout from 480p to 4K, in both portrait and landscape
-- Multi-session slideshow when more than one player is active
-- Configurable UI options for a cleaner or more detailed display
-- Optional filtering by players, users, and libraries
+- Responsive layout from 480p to 4K, in portrait and landscape
+- Multi-session slideshow for active players
+- Configurable display options, including low-power mode
+- Optional filtering by player, user, and library
 
 ## Installation
 
 ### Docker
 
-Copy `plex.config.json.example` to your config directory, rename it to `plex.config.json`, and edit it.
+Create `plex.config.json` from `plex.config.json.example` and mount it at `/app/config`.
 
 Run with Docker:
 
@@ -42,7 +44,10 @@ services:
 
 ### From Source
 
-This project targets Node `25.9.0` and npm `11.12.1`.
+Requirements:
+
+- Node `25.9.0`
+- npm `11.12.1`
 
 If you use `nvm`:
 
@@ -50,13 +55,15 @@ If you use `nvm`:
 nvm use
 ```
 
-Then clone the repo, create `config/plex.config.json`, and run:
+Then create `config/plex.config.json` and run:
 
 ```bash
 npm ci
 npm run build
 npm start
 ```
+
+You can create `config/plex.config.json` by copying `config/plex.config.json.example` and updating the values for your Plex setup.
 
 The app will be available at `http://localhost:3000`.
 
@@ -81,12 +88,10 @@ Example `plex.config.json`:
 }
 ```
 
-Config reference:
-
 | Option | Values | Description |
 | :-- | :-- | :-- |
-| `PLEX_URL` | `"http://your.plex.url"` | URL of your Plex instance[^1] |
-| `PLEX_TOKEN` | `"your-plex-token"` | Plex token[^2] |
+| `PLEX_URL` | `"http://your.plex.url"` | URL of your Plex instance. If Plex uses HTTPS with a self-signed certificate, you may need to add that certificate to the container or runtime trust store. |
+| `PLEX_TOKEN` | `"your-plex-token"` | Plex token. See [Plex's token guide](https://support.plex.tv/articles/204059436-finding-an-authentication-token-x-plex-token/). |
 | `PLAYERS` | `["raspberrypi", "android"]` or `[]` | List of players to include, or empty for no filtering |
 | `USERS` | `["bob", "jane"]` or `[]` | List of users to include, or empty for no filtering |
 | `LIBRARIES` | `["music", "chiptunes"]` or `[]` | List of libraries to include, or empty for no filtering |
@@ -94,13 +99,13 @@ Config reference:
 | `SHOW_USERNAME` | `true` or `false` | Show usernames |
 | `SHOW_MEDIAINFO` | `true` or `false` | Show codec, sampling rate, bit depth, and bitrate |
 | `SHOW_CLIENTINFO` | `true` or `false` | Show player, device, and user info |
-| `SHOW_PROGRESS` | `true` or `false` | Show the song progress bar[^3] |
+| `SHOW_PROGRESS` | `true` or `false` | Show the song progress bar. Progress timing may not match exactly. |
 | `LOW_POWER_MODE` | `true` or `false` | Reduce effects, lower refresh work, and replace marquee text with ellipsis |
 | `IMAGE_CACHE_ENABLED` | `true` or `false` | Enable or disable the server-side artwork cache |
 
 ## Image Cache
 
-Artwork requested through `/api/art` is cached on the server by default to reduce repeat Plex fetches and make slide changes smoother.
+Artwork requested through `/api/art` is cached on the server by default.
 
 Disable the cache in `plex.config.json`:
 
@@ -116,7 +121,7 @@ Check cache stats:
 http://localhost:3000/api/cache-stats
 ```
 
-The response includes whether the cache is enabled, request counters, hit rate, file count, total size, and the largest cached items.
+The response includes cache status, counters, hit rate, file count, total size, and the largest cached items.
 
 Clear the cache:
 
@@ -149,11 +154,3 @@ Minimal:
 
 Low-power:
 ![Low-power](/src/assets/images/lowpower.png "Low-power")
-
-## Notes
-
-This project was built with Codex.
-
-[^1]: _Doesn't support self-signed certificates_
-[^2]: https://support.plex.tv/articles/204059436-finding-an-authentication-token-x-plex-token/
-[^3]: _Song progress doesn't match exactly_

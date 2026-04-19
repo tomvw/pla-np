@@ -158,6 +158,7 @@ app.get("/api/config", (req, res) => {
     SHOW_PROGRESS: publicCfg.SHOW_PROGRESS,
     SHOW_MEDIAINFO: publicCfg.SHOW_MEDIAINFO,
     SHOW_CLIENTINFO: publicCfg.SHOW_CLIENTINFO,
+    LOW_POWER_MODE: publicCfg.LOW_POWER_MODE,
     ARTIST_DISPLAY: publicCfg.ARTIST_DISPLAY,
     PLAYERS: publicCfg.PLAYERS || [],
     USERS: publicCfg.USERS || [],

@@ -22,7 +22,10 @@
   let SHOW_PROGRESS = $state(false);
   let SHOW_MEDIAINFO = $state(true);
   let SHOW_CLIENTINFO = $state(true);
+  let LOW_POWER_MODE = $state(false);
   const SESSION_ROTATION_MS = 14000;
+  const LOW_POWER_PROGRESS_INTERVAL_MS = 2000;
+  const DEFAULT_PROGRESS_INTERVAL_MS = 750;
   const TRACK_TRANSITION_MS = 2800;
   const TRACK_TRANSITION_EASING = "cubic-bezier(0.16, 1, 0.3, 1)";
   const TRACK_TRANSITION_CLEANUP_MS = TRACK_TRANSITION_MS + 150;
@@ -152,6 +155,11 @@
         config.SHOW_CLIENTINFO === undefined
           ? true
           : Boolean(config.SHOW_CLIENTINFO);
+      // LOW_POWER_MODE disables marquee and reduces transition work for weaker devices
+      LOW_POWER_MODE =
+        config.LOW_POWER_MODE === undefined
+          ? false
+          : Boolean(config.LOW_POWER_MODE);
 
       configLoaded = true;
     } catch (err) {
@@ -382,6 +390,9 @@
 
   function startProgress() {
     clearInterval(progressTimer);
+    const intervalMs = LOW_POWER_MODE
+      ? LOW_POWER_PROGRESS_INTERVAL_MS
+      : DEFAULT_PROGRESS_INTERVAL_MS;
     progressTimer = setInterval(() => {
       if (!pageVisible) return;
       const now = Date.now();
@@ -393,7 +404,7 @@
           ? { ...s, localOffset: getSyncedOffset(s, now) }
           : s,
       );
-    }, 750);
+    }, intervalMs);
   }
 
   function startSlideshow() {
@@ -448,6 +459,15 @@
         previousActiveSession.trackSignature !== currentSession.trackSignature;
 
       if (sameSessionTrackChanged) {
+        if (LOW_POWER_MODE) {
+          if (textOverlayTimer) {
+            clearTimeout(textOverlayTimer);
+            textOverlayTimer = null;
+          }
+          textOverlay = null;
+          previousActiveSession = currentSession;
+          return;
+        }
         textOverlay = getTextSnapshot(previousActiveSession);
         if (textOverlayTimer) clearTimeout(textOverlayTimer);
         textOverlayTimer = setTimeout(() => {
@@ -512,6 +532,8 @@
 
   // Slower marquee with pause
   export function marquee(node, { baseSpeed = 30, pauseDuration = 2000 } = {}) {
+    if (LOW_POWER_MODE) return;
+
     const span = node.querySelector("span");
     if (!span) return;
 
@@ -684,6 +706,16 @@
       if (newSrc === lastSrc) return;
       lastSrc = newSrc;
 
+      if (LOW_POWER_MODE) {
+        pending = null;
+        if (isBg) {
+          node.style.backgroundImage = `url(${url})`;
+        } else {
+          node.src = url;
+        }
+        return;
+      }
+
       const img = new Image();
       pending = img;
       img.onload = () => {
@@ -754,7 +786,7 @@
 {#if !configLoaded}
   <div class="idle">Loading...</div>
 {:else if activeSession}
-  <div class="fade-wrapper">
+  <div class={`fade-wrapper ${LOW_POWER_MODE ? "low-power" : ""}`}>
     {#each sessions as session, i (session.identityKey)}
       <div
         class={`fade-slide ${i === activeIndex ? "visible" : ""}`}

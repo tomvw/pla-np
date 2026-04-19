@@ -75,7 +75,8 @@ Example config file:
   "SHOW_USERNAME": true,
   "SHOW_MEDIAINFO": true,
   "SHOW_CLIENTINFO": true,
-  "SHOW_PROGRESS": false
+  "SHOW_PROGRESS": false,
+  "LOW_POWER_MODE": false
 }
 ```
 
@@ -93,6 +94,7 @@ Config reference:
 | **`SHOW_MEDIAINFO`**  | `true` or `false`                    | Show media info (codec, sampling rate, bit depth, bitrate)                          |
 | **`SHOW_CLIENTINFO`** | `true` or `false`                    | Show client info (player, device, user)                                             |
 | **`SHOW_PROGRESS`**   | `true` or `false`                    | Show the song progress bar[^3]                                                      |
+| **`LOW_POWER_MODE`**  | `true` or `false`                    | Reduces animations and effects, lowers polling frequency, and replaces marquee text with ellipsis for lower powered devices               |
 
 ## Screenshots
 
@@ -102,6 +104,8 @@ Portrait view:
 ![Portrait](/src/assets/images/portrait.png "Portrait")
 Minimal view:
 ![Minimal](/src/assets/images/minimal.png "Minimal")
+Low-power view:
+![Low-power](/src/assets/images/lowpower.png "Low-power")
 
 #### ⚠️This project was vibe-coded using Codex
 

@@ -41,6 +41,15 @@ body {
   transform: scale(1);
 }
 
+.low-power .fade-slide {
+  transition: opacity 140ms linear;
+  transform: none;
+}
+
+.low-power .fade-slide.visible {
+  transform: none;
+}
+
 /* Prevent marquee transforms from causing horizontal scrolling */
 .fade-wrapper,
 .fade-slide {
@@ -298,6 +307,41 @@ body {
   z-index: -1;
 }
 
+.low-power .bg,
+.low-power .bg-overlay {
+  filter: brightness(0.28);
+  transform: none;
+}
+
+.low-power .art,
+.low-power .art-overlay,
+.low-power .progress-fill,
+.low-power .progress-cap,
+.low-power .info-badge {
+  box-shadow: none;
+}
+
+.low-power .ambient-fade-out {
+  animation: none;
+  opacity: 0;
+}
+
+.low-power .title,
+.low-power .artist,
+.low-power .album {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.low-power .title span,
+.low-power .artist span,
+.low-power .album span {
+  display: inline;
+  max-width: none;
+  white-space: inherit;
+}
+
 .idle {
   color: white;
   display: flex;
@@ -374,6 +418,17 @@ body {
     line-height: 1.26;
     white-space: normal;
     overflow: hidden; /* clip marquee so it can't scroll past .info */
+  }
+  .low-power .title,
+  .low-power .artist,
+  .low-power .album {
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+  .low-power .title span,
+  .low-power .artist span,
+  .low-power .album span {
+    display: inline;
   }
   .progress-track {
     width: calc(100% - 0.35rem);

@@ -1,6 +1,6 @@
 # pla-np
 
-A Plex/Plexamp Now Playing page made in Svelte.
+A Plex/Plexamp Now Playing page made in Svelte 5.
 
 ## Features
 
@@ -41,6 +41,14 @@ services:
 ```
 
 ### From Source
+
+This project targets Node `25.9.0` and npm `11.12.1`.
+
+If you use `nvm`, run:
+
+```bash
+nvm use
+```
 
 Clone the repo, edit and rename `plex.config.json.example` and run the following commands:
 

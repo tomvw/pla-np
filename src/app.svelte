@@ -1,28 +1,27 @@
+<svelte:options runes={true} />
+
 <script>
   import { onMount, onDestroy } from "svelte";
-  import { writable, derived, get } from "svelte/store";
-
-  // Stores
-  export const sessions = writable([]);
-  export const activeIndex = writable(0);
 
   let progressTimer;
   let rotationTimer;
   let refreshTimer;
 
-  let config;
-  let configLoaded = false;
-  let configVersion = null;
-  let pageVisible = true;
+  let sessions = $state([]);
+  let activeIndex = $state(0);
+  let config = $state();
+  let configLoaded = $state(false);
+  let configVersion = $state(null);
+  let pageVisible = $state(true);
 
   let ALLOWED_PLAYERS = [];
   let ALLOWED_USERS = [];
   let ALLOWED_LIBRARIES = [];
-  let ARTIST_DISPLAY = "both";
-  let SHOW_USERNAME = true;
-  let SHOW_PROGRESS = false;
-  let SHOW_MEDIAINFO = true;
-  let SHOW_CLIENTINFO = true;
+  let ARTIST_DISPLAY = $state("both");
+  let SHOW_USERNAME = $state(true);
+  let SHOW_PROGRESS = $state(false);
+  let SHOW_MEDIAINFO = $state(true);
+  let SHOW_CLIENTINFO = $state(true);
   const SESSION_ROTATION_MS = 14000;
   const TRACK_TRANSITION_MS = 2800;
   const TRACK_TRANSITION_EASING = "cubic-bezier(0.16, 1, 0.3, 1)";
@@ -296,8 +295,8 @@
         });
       }
 
-      const current = get(sessions);
-      const activeSessionBefore = current[get(activeIndex) || 0];
+      const current = sessions;
+      const activeSessionBefore = current[activeIndex || 0];
       const activeIdentityBefore = activeSessionBefore?.identityKey;
 
       const currentByIdentity = new Map(
@@ -340,40 +339,40 @@
         const preservedIndex = merged.findIndex(
           (session) => session.identityKey === activeIdentityBefore,
         );
-        const currentIndex = get(activeIndex) || 0;
+        const currentIndex = activeIndex || 0;
         nextActiveIndex =
           preservedIndex >= 0
             ? preservedIndex
             : Math.min(currentIndex, merged.length - 1);
       }
 
-      sessions.set(merged);
+      sessions = merged;
 
       // If we transitioned from no sessions to some, ensure activeIndex is valid and start slideshow
       if (merged.length > 0) {
-        activeIndex.set(nextActiveIndex);
+        activeIndex = nextActiveIndex;
         if (current.length === 0) {
           // start at the first playing session
           const startIdx = nextPlayingIndex(0, merged);
-          activeIndex.set(startIdx);
+          activeIndex = startIdx;
           startSlideshow();
         } else if (merged.length !== current.length) {
           startSlideshow();
         }
       } else {
         // no sessions — ensure activeIndex resets to 0 so UI shows "Nothing playing" consistently
-        activeIndex.set(0);
+        activeIndex = 0;
       }
 
       // If the currently active session is now paused, immediately advance
       // to the next playing session so paused items exit the slideshow faster.
       const listAfter = merged;
       if (listAfter.length) {
-        const ci = get(activeIndex) || 0;
+        const ci = activeIndex || 0;
         const active = listAfter[ci];
         if (active && active.state !== "playing") {
           const next = nextPlayingIndex(ci, listAfter);
-          activeIndex.set(next);
+          activeIndex = next;
         }
       }
     } catch (err) {
@@ -386,30 +385,28 @@
     progressTimer = setInterval(() => {
       if (!pageVisible) return;
       const now = Date.now();
-      const currentIndex = get(activeIndex) || 0;
-      const currentSession = get(sessions)[currentIndex];
+      const currentIndex = activeIndex || 0;
+      const currentSession = sessions[currentIndex];
       if (!currentSession || currentSession.state !== "playing") return;
-      sessions.update((list) =>
-        list.map((s, index) =>
-          index === currentIndex && s.state === "playing"
-            ? { ...s, localOffset: getSyncedOffset(s, now) }
-            : s,
-        ),
+      sessions = sessions.map((s, index) =>
+        index === currentIndex && s.state === "playing"
+          ? { ...s, localOffset: getSyncedOffset(s, now) }
+          : s,
       );
     }, 750);
   }
 
   function startSlideshow() {
     clearInterval(rotationTimer);
-    if (get(sessions).length <= 1) return;
+    if (sessions.length <= 1) return;
     rotationTimer = setInterval(() => {
       if (!pageVisible) return;
-      const list = get(sessions);
+      const list = sessions;
       if (!list.length) return;
-      const prev = get(activeIndex) || 0;
+      const prev = activeIndex || 0;
       const next = nextPlayingIndex(prev, list);
       if (next !== prev) {
-        activeIndex.set(next);
+        activeIndex = next;
       }
     }, SESSION_ROTATION_MS);
   }
@@ -435,39 +432,40 @@
     }, 15000);
   }
 
-  const activeSession = derived(
-    [sessions, activeIndex],
-    ([$sessions, $activeIndex]) => $sessions[$activeIndex],
-  );
+  let activeSession = $derived(sessions[activeIndex]);
 
   let previousActiveSession = null;
-  let textOverlay = null;
+  let textOverlay = $state(null);
   let textOverlayTimer = null;
 
-  $: if ($activeSession) {
-    const sameSessionTrackChanged =
-      previousActiveSession &&
-      previousActiveSession.identityKey === $activeSession.identityKey &&
-      previousActiveSession.trackSignature !== $activeSession.trackSignature;
+  $effect(() => {
+    const currentSession = activeSession;
 
-    if (sameSessionTrackChanged) {
-      textOverlay = getTextSnapshot(previousActiveSession);
-      if (textOverlayTimer) clearTimeout(textOverlayTimer);
-      textOverlayTimer = setTimeout(() => {
-        textOverlay = null;
+    if (currentSession) {
+      const sameSessionTrackChanged =
+        previousActiveSession &&
+        previousActiveSession.identityKey === currentSession.identityKey &&
+        previousActiveSession.trackSignature !== currentSession.trackSignature;
+
+      if (sameSessionTrackChanged) {
+        textOverlay = getTextSnapshot(previousActiveSession);
+        if (textOverlayTimer) clearTimeout(textOverlayTimer);
+        textOverlayTimer = setTimeout(() => {
+          textOverlay = null;
+          textOverlayTimer = null;
+        }, TRACK_TRANSITION_CLEANUP_MS);
+      }
+
+      previousActiveSession = currentSession;
+    } else {
+      previousActiveSession = null;
+      textOverlay = null;
+      if (textOverlayTimer) {
+        clearTimeout(textOverlayTimer);
         textOverlayTimer = null;
-      }, TRACK_TRANSITION_CLEANUP_MS);
+      }
     }
-
-    previousActiveSession = $activeSession;
-  } else {
-    previousActiveSession = null;
-    textOverlay = null;
-    if (textOverlayTimer) {
-      clearTimeout(textOverlayTimer);
-      textOverlayTimer = null;
-    }
-  }
+  });
 
   const format = (ms) => {
     const s = Math.floor(ms / 1000);
@@ -755,11 +753,11 @@
 
 {#if !configLoaded}
   <div class="idle">Loading...</div>
-{:else if $activeSession}
+{:else if activeSession}
   <div class="fade-wrapper">
-    {#each $sessions as session, i (session.identityKey)}
+    {#each sessions as session, i (session.identityKey)}
       <div
-        class={`fade-slide ${i === $activeIndex ? "visible" : ""}`}
+        class={`fade-slide ${i === activeIndex ? "visible" : ""}`}
       >
         <div class="bg" use:smoothImage={{ src: session.art, isBg: true }}></div>
 
@@ -836,7 +834,7 @@
               {/if}
             </div>
 
-            {#if textOverlay && i === $activeIndex && session.identityKey === textOverlay.identityKey}
+            {#if textOverlay && i === activeIndex && session.identityKey === textOverlay.identityKey}
               <div class="info-overlay ambient-fade-out" aria-hidden="true">
                 <div class="title"><span>{textOverlay.title}</span></div>
                 <div class="artist">

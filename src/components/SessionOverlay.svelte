@@ -1,6 +1,5 @@
 <script>
   import {
-    format,
     getClientInfoParts,
     getMediaInfoParts,
   } from "../lib/playerDisplay.js";
@@ -20,10 +19,10 @@
 <div class="info-overlay ambient-fade-out" aria-hidden="true">
   <div class="title"><span>{overlay.title}</span></div>
   <div class="artist">
-    <span>{overlay.artist}</span>
+    <span>{overlay.subtitle}</span>
   </div>
   <div class="album">
-    <span>{overlay.album}{#if overlay.year}{" "}({overlay.year}){/if}</span>
+    <span>{overlay.detail}</span>
   </div>
 
   {#if showProgress}
@@ -35,8 +34,8 @@
       {#if mediaInfo.codec}
         <span class="info-badge codec-badge">{mediaInfo.codec}</span>
       {/if}
-      {#each mediaInfo.badges as badge}
-        <span class="info-badge meta-badge">{badge}</span>
+      {#each mediaInfo.badges as badge, badgeIndex}
+        <span class={`info-badge meta-badge ${mediaInfo.badgeTypes?.[badgeIndex] || ""}`}>{badge}</span>
       {/each}
     </div>
   {/if}

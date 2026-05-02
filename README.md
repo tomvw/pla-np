@@ -1,6 +1,6 @@
 # pla-np
 
-A Plex/Plexamp Now Playing page made in Svelte 5.
+A Plex/Plexamp Now Playing page for music, movies, and TV shows made in Svelte 5.
 
 This project was built with Codex.
 
@@ -8,6 +8,8 @@ This project was built with Codex.
 
 - Responsive layout from 480p to 4K, in portrait and landscape
 - Multi-session slideshow for active players
+- Music, movie, and TV show now-playing views
+- Media info pills for codecs, streams, subtitles, and playback decisions
 - Configurable display options, including low-power mode
 - Optional filtering by player, user, and library
 
@@ -102,6 +104,14 @@ Example `plex.config.json`:
 | `SHOW_PROGRESS` | `true` or `false` | Show the song progress bar. Progress timing may not match exactly. |
 | `LOW_POWER_MODE` | `true` or `false` | Reduce effects, lower refresh work, and replace marquee text with ellipsis |
 | `IMAGE_CACHE_ENABLED` | `true` or `false` | Enable or disable the server-side artwork cache |
+
+## Media Views
+
+Music sessions show track, artist, album, and audio quality details.
+
+Movie sessions show the movie title, tagline, year, poster, backdrop artwork, playback decision, and video/audio/subtitle stream details.
+
+TV sessions show the show title, season and episode number, episode title, show poster, backdrop artwork, playback decision, and video/audio/subtitle stream details. Specials are shown as season `S00`.
 
 ## Image Cache
 

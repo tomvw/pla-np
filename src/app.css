@@ -86,6 +86,17 @@ body {
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
 }
 
+.media-movie .art,
+.media-show .art {
+  width: clamp(180px, 34vh, 330px);
+  aspect-ratio: 2/3;
+}
+
+.media-movie .player,
+.media-show .player {
+  gap: 2rem;
+}
+
 .art-overlay {
   position: absolute;
   inset: 0;
@@ -257,6 +268,27 @@ body {
   color: rgba(255, 255, 255, 0.9);
 }
 
+.decision-direct-play {
+  background:
+    linear-gradient(135deg, rgba(108, 214, 143, 0.32), rgba(108, 214, 143, 0.1)),
+    rgba(8, 22, 15, 0.62);
+  border-color: rgba(139, 232, 164, 0.34);
+}
+
+.decision-direct-stream {
+  background:
+    linear-gradient(135deg, rgba(245, 174, 91, 0.34), rgba(245, 174, 91, 0.1)),
+    rgba(29, 18, 8, 0.62);
+  border-color: rgba(255, 190, 107, 0.36);
+}
+
+.decision-transcode {
+  background:
+    linear-gradient(135deg, rgba(238, 96, 96, 0.34), rgba(238, 96, 96, 0.1)),
+    rgba(30, 10, 10, 0.62);
+  border-color: rgba(255, 126, 126, 0.36);
+}
+
 .client .info-badge,
 .client-nomediainfo .info-badge {
   opacity: 1;
@@ -361,6 +393,10 @@ body {
     border-radius: 10px;
     box-shadow: 0 30px 80px rgba(0, 0, 0, 0.6);
   }
+  .media-movie .art,
+  .media-show .art {
+    width: clamp(260px, 40vh, 420px);
+  }
   .title {
     font-size: 2.6rem;
   }
@@ -403,6 +439,11 @@ body {
     width: min(80vw, 560px);
     margin: 0 auto;
     aspect-ratio: 1/1;
+  }
+  .media-movie .art,
+  .media-show .art {
+    width: min(54vw, 360px);
+    aspect-ratio: 2/3;
   }
   .info {
     padding-top: 0.75rem;

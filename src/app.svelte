@@ -5,6 +5,7 @@
   import SessionSlide from "./components/SessionSlide.svelte";
   import {
     getClientInfoParts,
+    getDisplayLines,
     getMediaInfoParts,
   } from "./lib/playerDisplay.js";
 
@@ -52,7 +53,17 @@
   }
 
   function getTrackSignature(track) {
-    return [track.guid, track.updatedAt, track.title, track.album, track.duration]
+    return [
+      track.guid,
+      track.updatedAt,
+      track.mediaType,
+      track.title,
+      track.album,
+      track.showTitle,
+      track.seasonNumber,
+      track.episodeNumber,
+      track.duration,
+    ]
       .filter((value) => value !== undefined && value !== null)
       .join("::");
   }
@@ -90,14 +101,20 @@
     if (!session) return null;
     const mediaInfo = getMediaInfoParts(session);
     const clientInfo = getClientInfoParts(session);
+    const displayLines = getDisplayLines(session, getRenderedArtist(session));
     return {
       identityKey: session.identityKey,
-      title: session.title,
-      artist: getRenderedArtist(session),
-      album: session.album,
-      year: session.year,
+      viewType: session.viewType,
+      title: displayLines.title,
+      subtitle: displayLines.subtitle,
+      detail: displayLines.detail,
       codec: mediaInfo.codec,
+      videoDetails: session.videoDetails,
+      audioDetails: session.audioDetails,
+      subtitleDetails: session.subtitleDetails,
+      playbackDecision: session.playbackDecision,
       mediaBadges: mediaInfo.badges,
+      mediaBadgeTypes: mediaInfo.badgeTypes,
       clientBadges: clientInfo.badges,
     };
   }
@@ -126,6 +143,51 @@
     return Array.isArray(value) ? value : [value];
   }
 
+  function getType(item) {
+    const attrType = getValue(item, "type");
+    if (attrType) return attrType;
+    if (item instanceof Element) {
+      const tagName = item.tagName.toLowerCase();
+      if (tagName === "track") return "track";
+      if (tagName === "video") return "video";
+    }
+    return "track";
+  }
+
+  function getStreams(track, part, media) {
+    if (track instanceof Element) {
+      return [
+        ...Array.from(part?.querySelectorAll("Stream") || []),
+        ...Array.from(media?.querySelectorAll("Stream") || []),
+        ...Array.from(track.querySelectorAll("Stream")),
+      ];
+    }
+
+    return [
+      ...getArray(part, "Stream"),
+      ...getArray(media, "Stream"),
+      ...getArray(track, "Stream"),
+    ];
+  }
+
+  function getStreamByType(track, part, media, streamType) {
+    const streams = getStreams(track, part, media);
+    return streams.find(
+      (stream) => Number(getValue(stream, "streamType")) === streamType,
+    );
+  }
+
+  function isTruthyAttr(value) {
+    return value === true || value === 1 || value === "1" || value === "true";
+  }
+
+  function getSelectedStreamByType(track, part, media, streamType) {
+    const streams = getStreams(track, part, media).filter(
+      (stream) => Number(getValue(stream, "streamType")) === streamType,
+    );
+    return streams.find((stream) => isTruthyAttr(getValue(stream, "selected"))) || streams[0];
+  }
+
   function getAudioStream(track, part, media) {
     if (track instanceof Element) {
       return (
@@ -146,12 +208,201 @@
     );
   }
 
+  function formatCodec(value) {
+    if (!value) return "";
+    return String(value)
+      .replace(/_/g, " ")
+      .trim()
+      .toUpperCase();
+  }
+
+  function normalizeSubtitleFormat(value) {
+    const codec = formatCodec(value);
+    if (!codec) return "";
+    if (codec === "S_TEXT/UTF8") return "SRT";
+    if (codec === "S_TEXT/ASS") return "ASS";
+    if (codec === "S_TEXT/SSA") return "SSA";
+    if (codec === "S_HDMV/PGS") return "PGS";
+    return codec.replace(/^S_TEXT\//, "");
+  }
+
+  function getLanguageLabel(stream) {
+    return (
+      getValue(stream, "languageTitle") ||
+      getValue(stream, "language") ||
+      getValue(stream, "languageCode") ||
+      ""
+    );
+  }
+
+  function getBitrateKbps(...values) {
+    for (const value of values) {
+      const num = Number(value);
+      if (!isNaN(num) && num > 0) return Math.round(num);
+    }
+    return "";
+  }
+
+  function normalizeFrameRate(value) {
+    const num = Number(value);
+    if (isNaN(num) || num <= 0) return "";
+    const rounded = Math.round(num * 1000) / 1000;
+    return Number.isInteger(rounded)
+      ? String(rounded)
+      : String(rounded).replace(/0+$/, "").replace(/\.$/, "");
+  }
+
+  function normalizeIndex(value) {
+    if (value === undefined || value === null || value === "") return "";
+    const num = Number(value);
+    return isNaN(num) ? "" : num;
+  }
+
+  function getVideoHdrLabel(stream) {
+    const values = [
+      getValue(stream, "hdr"),
+      getValue(stream, "dynamicRange"),
+      getValue(stream, "displayTitle"),
+      getValue(stream, "colorPrimaries"),
+      getValue(stream, "colorSpace"),
+      getValue(stream, "colorTrc"),
+    ]
+      .filter(Boolean)
+      .map((value) => String(value).toLowerCase());
+
+    if (values.some((value) => value.includes("dolby vision") || value === "dv")) {
+      return "DV";
+    }
+    if (
+      values.some(
+        (value) =>
+          value.includes("hdr") ||
+          value.includes("bt2020") ||
+          value.includes("smpte2084") ||
+          value.includes("arib-std-b67"),
+      )
+    ) {
+      return "HDR";
+    }
+    return "";
+  }
+
+  function normalizeVideoStream(stream, media, part) {
+    if (!stream && !media && !part) return {};
+    const width = getValue(stream, "width") || getValue(media, "width");
+    const height = getValue(stream, "height") || getValue(media, "height");
+    const resolution =
+      getValue(media, "videoResolution") ||
+      (height ? `${height}p` : width ? `${width}w` : "");
+
+    return {
+      codec: formatCodec(
+        getValue(stream, "codec") ||
+          getValue(media, "videoCodec") ||
+          getValue(part, "videoCodec") ||
+          "",
+      ),
+      profile: getValue(stream, "profile") || getValue(media, "videoProfile") || "",
+      resolution,
+      bitrate: getBitrateKbps(
+        getValue(stream, "bitrate"),
+        getValue(media, "bitrate"),
+      ),
+      frameRate: normalizeFrameRate(
+        getValue(stream, "frameRate") || getValue(media, "videoFrameRate"),
+      ),
+      bitDepth: getValue(stream, "bitDepth") || "",
+      hdr: getVideoHdrLabel(stream),
+    };
+  }
+
+  function normalizeAudioStream(stream, media) {
+    if (!stream && !media) return {};
+
+    return {
+      codec: formatCodec(
+        getValue(stream, "codec") || getValue(media, "audioCodec") || "",
+      ),
+      profile: getValue(stream, "profile") || getValue(media, "audioProfile") || "",
+      language: getLanguageLabel(stream),
+      channels:
+        getValue(stream, "audioChannelLayout") ||
+        getValue(stream, "channels") ||
+        getValue(media, "audioChannels") ||
+        "",
+      bitrate: getBitrateKbps(getValue(stream, "bitrate")),
+      samplingRate: getValue(stream, "samplingRate") || "",
+    };
+  }
+
+  function normalizeSubtitleStream(stream) {
+    if (!stream) return {};
+
+    return {
+      codec: normalizeSubtitleFormat(
+        getValue(stream, "codec") || getValue(stream, "format") || "",
+      ),
+      language: getLanguageLabel(stream),
+      title: getValue(stream, "displayTitle") || "",
+      forced: isTruthyAttr(getValue(stream, "forced")),
+      default: isTruthyAttr(getValue(stream, "default")),
+    };
+  }
+
+  function normalizePlaybackDecision(track, part, media, viewType) {
+    const sessionNode = getChild(track, "Session");
+    const transcodeSession = getChild(track, "TranscodeSession");
+    const rawDecision = [
+      getValue(sessionNode, "decision") ||
+        "",
+      getValue(transcodeSession, "decision") || "",
+      getValue(track, "decision") || "",
+      getValue(media, "decision") || "",
+      getValue(part, "decision") || "",
+      ...getStreams(track, part, media).map((stream) => getValue(stream, "decision") || ""),
+      ...getStreams(track, part, media).map((stream) => getValue(stream, "location") || ""),
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
+
+    if (rawDecision.includes("transcode") || transcodeSession) {
+      return { type: "transcode", label: "Transcode" };
+    }
+    if (rawDecision.includes("directstream") || rawDecision.includes("direct stream")) {
+      return { type: "direct-stream", label: "Direct Stream" };
+    }
+    if (
+      rawDecision.includes("directplay") ||
+      rawDecision.includes("direct play") ||
+      rawDecision.includes("direct")
+    ) {
+      return { type: "direct-play", label: "Direct Play" };
+    }
+
+    if (["movie", "show"].includes(viewType)) {
+      return { type: "direct-play", label: "Direct Play" };
+    }
+
+    return null;
+  }
+
   function normalizeSession(track, fetchedAt) {
     const player = getChild(track, "Player");
     const user = getChild(track, "User");
     const mediaElem = getChild(track, "Media");
     const mediainfo = getChild(mediaElem, "Part") || getChild(track, "Part");
-    const audioStream = getAudioStream(track, mediainfo, mediaElem);
+    const typedAudioStream = getSelectedStreamByType(track, mediainfo, mediaElem, 2);
+    const audioStream = typedAudioStream || getAudioStream(track, mediainfo, mediaElem);
+    const videoStream = getSelectedStreamByType(track, mediainfo, mediaElem, 1);
+    const subtitleStream = getSelectedStreamByType(track, mediainfo, mediaElem, 3);
+    const mediaType = getType(track);
+    const viewType =
+      mediaType === "movie" || mediaType === "video"
+        ? "movie"
+        : mediaType === "episode"
+          ? "show"
+          : "music";
 
     const trackArtist = (
       getValue(track, "originalTitle") ||
@@ -193,22 +444,69 @@
       getValue(mediainfo, "bitrate") ||
       "";
     const bitrateNum = bitrateAttr ? Number(bitrateAttr) : NaN;
+    const videoDetails = normalizeVideoStream(videoStream, mediaElem, mediainfo);
+    const audioDetails = normalizeAudioStream(typedAudioStream, mediaElem);
+    const subtitleDetails = normalizeSubtitleStream(subtitleStream);
+    const playbackDecision = normalizePlaybackDecision(
+      track,
+      mediainfo,
+      mediaElem,
+      viewType,
+    );
 
     const session = {
+      mediaType,
+      viewType,
       sessionKey:
         getValue(track, "sessionKey") ||
         getValue(getChild(track, "Session"), "id"),
       guid: getValue(track, "guid"),
       updatedAt: getValue(track, "updatedAt"),
       title: getValue(track, "title")?.trim() || "",
-      year: getValue(track, "parentYear"),
+      tagline: getValue(track, "tagline")?.trim() || "",
+      year:
+        getValue(track, "year") ||
+        getValue(track, "parentYear") ||
+        getValue(track, "grandparentYear"),
       trackArtist,
       albumArtist,
       album: getValue(track, "parentTitle")?.trim() || "",
+      showTitle: getValue(track, "grandparentTitle")?.trim() || "",
+      seasonNumber: normalizeIndex(getValue(track, "parentIndex")),
+      episodeNumber: normalizeIndex(getValue(track, "index")),
+      episodeTitle:
+        mediaType === "episode" ? getValue(track, "title")?.trim() || "" : "",
       art:
-        getValue(track, "parentThumb") ||
-        getValue(track, "grandparentThumb") ||
-        "",
+        viewType === "music"
+          ? getValue(track, "parentThumb") ||
+            getValue(track, "grandparentThumb") ||
+            getValue(track, "thumb") ||
+            ""
+          : viewType === "show"
+            ? getValue(track, "grandparentThumb") ||
+              getValue(track, "thumb") ||
+              getValue(track, "parentThumb") ||
+              ""
+          : getValue(track, "thumb") ||
+            getValue(track, "grandparentThumb") ||
+            getValue(track, "parentThumb") ||
+            "",
+      backgroundArt:
+        viewType === "music"
+          ? getValue(track, "parentThumb") ||
+            getValue(track, "grandparentThumb") ||
+            getValue(track, "thumb") ||
+            ""
+          : viewType === "show"
+            ? getValue(track, "grandparentArt") ||
+              getValue(track, "art") ||
+              getValue(track, "grandparentThumb") ||
+              getValue(track, "thumb") ||
+              ""
+            : getValue(track, "art") ||
+              getValue(track, "thumb") ||
+              getValue(track, "grandparentArt") ||
+              "",
       duration: Number(getValue(track, "duration") || 0),
       localOffset: Number(getValue(track, "viewOffset") || 0),
       library: getValue(track, "librarySectionTitle"),
@@ -216,7 +514,14 @@
       player: getValue(player, "title"),
       product: getValue(player, "product"),
       user: getValue(user, "title"),
-      codec: codecRaw ? codecRaw.toUpperCase() : "",
+      codec: formatCodec(codecRaw),
+      audioCodec: audioDetails.codec,
+      videoCodec: videoDetails.codec,
+      subtitleCodec: subtitleDetails.codec,
+      videoDetails,
+      audioDetails,
+      subtitleDetails,
+      playbackDecision,
       bitDepth:
         getValue(audioStream, "bitDepth") ||
         getValue(mediaElem, "bitDepth") ||
@@ -321,7 +626,9 @@
         const xmlText = await res.text();
         const parser = new DOMParser();
         const xml = parser.parseFromString(xmlText, "application/xml");
-        rawNodes = Array.from(xml.querySelectorAll("Track"));
+        rawNodes = Array.from(
+          xml.querySelectorAll("MediaContainer > Metadata, MediaContainer > Track, MediaContainer > Video"),
+        );
       }
 
       const fetchedAt = Date.now();

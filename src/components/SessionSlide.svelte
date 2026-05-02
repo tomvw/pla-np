@@ -2,7 +2,8 @@
   import { smoothImage, marquee } from "../lib/playerActions.js";
   import {
     format,
-     getClientInfoParts,
+    getClientInfoParts,
+    getDisplayLines,
     getMediaInfoParts,
     getProgressPercent,
   } from "../lib/playerDisplay.js";
@@ -23,21 +24,24 @@
 
   const mediaInfo = $derived(getMediaInfoParts(session));
   const clientInfo = $derived(getClientInfoParts(session, showUsername));
+  const displayLines = $derived(getDisplayLines(session, renderedArtist));
+  const backgroundArt = $derived(session.backgroundArt || session.art);
+  const showHours = $derived((session.duration || 0) >= 60 * 60 * 1000);
   const overlayMatches =
     $derived(textOverlay && session.identityKey === textOverlay.identityKey);
 </script>
 
-<div class={`fade-slide ${isActive ? "visible" : ""}`}>
+<div class={`fade-slide media-${session.viewType || "music"} ${isActive ? "visible" : ""}`}>
   <div
     class="bg"
-    use:smoothImage={{ src: session.art, isBg: true, lowPowerMode }}
+    use:smoothImage={{ src: backgroundArt, isBg: true, lowPowerMode }}
   ></div>
 
   <div class="player">
     <div class="art-container">
       <img
         class="art"
-        alt="Album Art"
+        alt={displayLines.artAlt}
         use:smoothImage={{ src: session.art, lowPowerMode }}
       />
     </div>
@@ -46,25 +50,25 @@
       <div
         class="title"
         use:marquee={{ lowPowerMode, pageVisible }}
-      ><span>{session.title}</span></div>
+      ><span>{displayLines.title}</span></div>
       <div
         class="artist"
         use:marquee={{ lowPowerMode, pageVisible }}
       >
-        <span>{renderedArtist}</span>
+        <span>{displayLines.subtitle}</span>
       </div>
       <div
         class="album"
         use:marquee={{ lowPowerMode, pageVisible }}
       >
-        <span>{session.album}{#if session.year}{" "}({session.year}){/if}</span>
+        <span>{displayLines.detail}</span>
       </div>
 
       <div class="meta-stack">
         {#if showProgress}
           <div class="progress-block">
             <div class="time time-start">
-              {format(session.localOffset)}
+              {format(session.localOffset, { forceHours: showHours })}
             </div>
             <div
               class="progress-track"
@@ -82,7 +86,7 @@
               </div>
             </div>
             <div class="time time-end">
-              {format(session.duration)}
+              {format(session.duration, { forceHours: showHours })}
             </div>
           </div>
         {/if}
@@ -91,8 +95,8 @@
             {#if mediaInfo.codec}
               <span class="info-badge codec-badge">{mediaInfo.codec}</span>
             {/if}
-            {#each mediaInfo.badges as badge}
-              <span class="info-badge meta-badge">{badge}</span>
+            {#each mediaInfo.badges as badge, badgeIndex}
+              <span class={`info-badge meta-badge ${mediaInfo.badgeTypes?.[badgeIndex] || ""}`}>{badge}</span>
             {/each}
           </div>
         {/if}

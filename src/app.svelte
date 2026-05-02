@@ -102,6 +102,139 @@
     };
   }
 
+  function firstItem(value) {
+    return Array.isArray(value) ? value[0] : value;
+  }
+
+  function getValue(item, key) {
+    if (!item) return undefined;
+    if (item instanceof Element) return item.getAttribute(key);
+    return item[key];
+  }
+
+  function getChild(item, key) {
+    if (!item) return null;
+    if (item instanceof Element) return item.querySelector(key);
+    return firstItem(item[key]);
+  }
+
+  function getArray(item, key) {
+    if (!item) return [];
+    if (item instanceof Element) return Array.from(item.querySelectorAll(key));
+    const value = item[key];
+    if (!value) return [];
+    return Array.isArray(value) ? value : [value];
+  }
+
+  function getAudioStream(track, part, media) {
+    if (track instanceof Element) {
+      return (
+        (part && part.querySelector('Stream[streamType="2"]')) ||
+        (part && part.querySelector("Stream")) ||
+        track.querySelector("Stream")
+      );
+    }
+
+    const streams = [
+      ...getArray(part, "Stream"),
+      ...getArray(media, "Stream"),
+      ...getArray(track, "Stream"),
+    ];
+    return (
+      streams.find((stream) => Number(getValue(stream, "streamType")) === 2) ||
+      streams[0]
+    );
+  }
+
+  function normalizeSession(track, fetchedAt) {
+    const player = getChild(track, "Player");
+    const user = getChild(track, "User");
+    const mediaElem = getChild(track, "Media");
+    const mediainfo = getChild(mediaElem, "Part") || getChild(track, "Part");
+    const audioStream = getAudioStream(track, mediainfo, mediaElem);
+
+    const trackArtist = (
+      getValue(track, "originalTitle") ||
+      getValue(track, "grandparentTitle") ||
+      ""
+    ).trim();
+    const albumArtistRaw = (
+      getValue(track, "grandparentTitle") || ""
+    ).trim();
+    const albumArtist =
+      albumArtistRaw &&
+      albumArtistRaw.toLowerCase() !== "various artists" &&
+      albumArtistRaw.toLowerCase() !== trackArtist.toLowerCase()
+        ? albumArtistRaw
+        : "";
+
+    const codecRaw =
+      getValue(audioStream, "codec") ||
+      getValue(audioStream, "audioCodec") ||
+      getValue(mediaElem, "audioCodec") ||
+      getValue(mediainfo, "container") ||
+      "";
+
+    const samplingRateAttr =
+      getValue(audioStream, "samplingRate") ||
+      getValue(mediaElem, "samplingRate") ||
+      "";
+    const samplingRateRaw = samplingRateAttr ? Number(samplingRateAttr) : NaN;
+    let samplingRateKHz = "";
+    if (!isNaN(samplingRateRaw) && samplingRateRaw > 0) {
+      const val = Math.round((samplingRateRaw / 1000) * 10) / 10;
+      samplingRateKHz =
+        val % 1 === 0 ? String(val.toFixed(0)) : String(val.toFixed(1));
+    }
+
+    const bitrateAttr =
+      getValue(audioStream, "bitrate") ||
+      getValue(mediaElem, "bitrate") ||
+      getValue(mediainfo, "bitrate") ||
+      "";
+    const bitrateNum = bitrateAttr ? Number(bitrateAttr) : NaN;
+
+    const session = {
+      sessionKey:
+        getValue(track, "sessionKey") ||
+        getValue(getChild(track, "Session"), "id"),
+      guid: getValue(track, "guid"),
+      updatedAt: getValue(track, "updatedAt"),
+      title: getValue(track, "title")?.trim() || "",
+      year: getValue(track, "parentYear"),
+      trackArtist,
+      albumArtist,
+      album: getValue(track, "parentTitle")?.trim() || "",
+      art:
+        getValue(track, "parentThumb") ||
+        getValue(track, "grandparentThumb") ||
+        "",
+      duration: Number(getValue(track, "duration") || 0),
+      localOffset: Number(getValue(track, "viewOffset") || 0),
+      library: getValue(track, "librarySectionTitle"),
+      state: getValue(player, "state"),
+      player: getValue(player, "title"),
+      product: getValue(player, "product"),
+      user: getValue(user, "title"),
+      codec: codecRaw ? codecRaw.toUpperCase() : "",
+      bitDepth:
+        getValue(audioStream, "bitDepth") ||
+        getValue(mediaElem, "bitDepth") ||
+        "",
+      samplingRate: samplingRateKHz,
+      bitrate:
+        !isNaN(bitrateNum) && bitrateNum > 0 ? Math.round(bitrateNum) : "",
+    };
+
+    return {
+      ...session,
+      syncedOffset: session.localOffset,
+      syncedAt: fetchedAt,
+      identityKey: getSessionIdentity(session),
+      trackSignature: getTrackSignature(session),
+    };
+  }
+
   async function loadConfig({ reloadOnChange = false } = {}) {
     try {
       const res = await fetch("/api/config", { cache: "no-store" });
@@ -177,110 +310,24 @@
     if (!configLoaded) return;
     try {
       const res = await fetch("/api/sessions");
-      const xmlText = await res.text();
-      const parser = new DOMParser();
-      const xml = parser.parseFromString(xmlText, "application/xml");
+      if (!res.ok) throw new Error("Failed to load sessions");
 
-      const rawNodes = Array.from(xml.querySelectorAll("Track"));
+      let rawNodes = [];
+      const contentType = res.headers.get("content-type") || "";
+      if (contentType.includes("application/json")) {
+        const payload = await res.json();
+        rawNodes = payload?.MediaContainer?.Metadata || [];
+      } else {
+        const xmlText = await res.text();
+        const parser = new DOMParser();
+        const xml = parser.parseFromString(xmlText, "application/xml");
+        rawNodes = Array.from(xml.querySelectorAll("Track"));
+      }
+
       const fetchedAt = Date.now();
-      let newTracks = rawNodes.map((track) => {
-        const player = track.querySelector("Player");
-        const user = track.querySelector("User");
-        const mediainfo = track.querySelector("Part");
-
-        // Locate Media and the audio Stream (streamType=2) under Part when available
-        const mediaElem = track.querySelector("Media");
-        const audioStream =
-          (mediainfo && mediainfo.querySelector('Stream[streamType="2"]')) ||
-          (mediainfo && mediainfo.querySelector("Stream")) ||
-          track.querySelector("Stream");
-
-        const trackArtist = (
-          track.getAttribute("originalTitle") ||
-          track.getAttribute("grandparentTitle") ||
-          ""
-        ).trim();
-        const albumArtistRaw = (
-          track.getAttribute("grandparentTitle") || ""
-        ).trim();
-        const albumArtist =
-          albumArtistRaw &&
-          albumArtistRaw.toLowerCase() !== "various artists" &&
-          albumArtistRaw.toLowerCase() !== trackArtist.toLowerCase()
-            ? albumArtistRaw
-            : "";
-
-        // Prefer attributes from the audio Stream, then Media, then Part
-        const codecRaw =
-          (audioStream &&
-            (audioStream.getAttribute("codec") ||
-              audioStream.getAttribute("audioCodec"))) ||
-          (mediaElem && mediaElem.getAttribute("audioCodec")) ||
-          (mediainfo && mediainfo.getAttribute("container")) ||
-          "";
-
-        const samplingRateAttr =
-          (audioStream && audioStream.getAttribute("samplingRate")) ||
-          (mediaElem && mediaElem.getAttribute("samplingRate")) ||
-          "";
-        const samplingRateRaw = samplingRateAttr
-          ? Number(samplingRateAttr)
-          : NaN;
-        let samplingRateKHz = "";
-        if (!isNaN(samplingRateRaw) && samplingRateRaw > 0) {
-          const val = Math.round((samplingRateRaw / 1000) * 10) / 10; // rounded to 0.1 kHz
-          samplingRateKHz =
-            val % 1 === 0 ? String(val.toFixed(0)) : String(val.toFixed(1));
-        }
-
-        const bitDepthAttr =
-          (audioStream && audioStream.getAttribute("bitDepth")) ||
-          (mediaElem && mediaElem.getAttribute("bitDepth")) ||
-          "";
-
-        const bitrateAttr =
-          (audioStream && audioStream.getAttribute("bitrate")) ||
-          (mediaElem && mediaElem.getAttribute("bitrate")) ||
-          (mediainfo && mediainfo.getAttribute("bitrate")) ||
-          "";
-        const bitrateNum = bitrateAttr ? Number(bitrateAttr) : NaN;
-        const bitrateKbps =
-          !isNaN(bitrateNum) && bitrateNum > 0 ? Math.round(bitrateNum) : "";
-
-        const session = {
-          sessionKey: track.getAttribute("sessionKey"),
-          guid: track.getAttribute("guid"),
-          updatedAt: track.getAttribute("updatedAt"),
-          title: track.getAttribute("title")?.trim() || "",
-          year: track.getAttribute("parentYear"),
-          trackArtist,
-          albumArtist,
-          album: track.getAttribute("parentTitle")?.trim() || "",
-          art:
-            track.getAttribute("parentThumb") ||
-            track.getAttribute("grandparentThumb") ||
-            "",
-          duration: Number(track.getAttribute("duration") || 0),
-          localOffset: Number(track.getAttribute("viewOffset") || 0),
-          library: track.getAttribute("librarySectionTitle"),
-          state: player?.getAttribute("state"),
-          player: player?.getAttribute("title"),
-          product: player?.getAttribute("product"),
-          user: user?.getAttribute("title"),
-          codec: codecRaw ? codecRaw.toUpperCase() : "",
-          bitDepth: bitDepthAttr,
-          samplingRate: samplingRateKHz,
-          bitrate: bitrateKbps,
-        };
-
-        return {
-          ...session,
-          syncedOffset: session.localOffset,
-          syncedAt: fetchedAt,
-          identityKey: getSessionIdentity(session),
-          trackSignature: getTrackSignature(session),
-        };
-      });
+      let newTracks = rawNodes.map((track) =>
+        normalizeSession(track, fetchedAt),
+      );
 
       // Filter by allowed players if config is set
       // Apply filters in a single pass (AND semantics)

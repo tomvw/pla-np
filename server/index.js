@@ -130,6 +130,24 @@ function ensureFreshConfig() {
   }
 }
 
+function getPlexHeaders({ accept = "application/json" } = {}) {
+  return {
+    Accept: accept,
+    "X-Plex-Token": config.PLEX_TOKEN,
+    "X-Plex-Product": "pla-np",
+    "X-Plex-Client-Identifier": "pla-np",
+    "X-Plex-Pms-Api-Version": "1.2.0",
+  };
+}
+
+function shouldSendPlexAuth(targetUrl) {
+  try {
+    return new URL(targetUrl).origin === new URL(config.PLEX_URL).origin;
+  } catch (err) {
+    return false;
+  }
+}
+
 // initial load
 loadConfig();
 
@@ -172,17 +190,23 @@ app.get("/api/config", (req, res) => {
   });
 });
 
-// API: proxy sessions XML from Plex, keeping token server-side
+// API: proxy sessions from Plex, keeping token server-side
 app.get("/api/sessions", async (req, res) => {
   ensureFreshConfig();
   if (!config || !config.PLEX_URL || !config.PLEX_TOKEN) {
     return res.status(500).send("Plex config not available");
   }
   try {
-    const url = `${config.PLEX_URL.replace(/\/$/, "")}/status/sessions?X-Plex-Token=${config.PLEX_TOKEN}`;
-    const proxied = await fetch(url);
+    const url = `${config.PLEX_URL.replace(/\/$/, "")}/status/sessions`;
+    const proxied = await fetch(url, {
+      headers: getPlexHeaders(),
+    });
+    if (!proxied.ok) return res.status(502).send("Failed to fetch sessions");
+
+    const contentType =
+      proxied.headers.get("content-type") || "application/json";
     const text = await proxied.text();
-    res.type("application/xml").send(text);
+    res.type(contentType).send(text);
   } catch (err) {
     console.error("Error proxying sessions:", err);
     res.status(502).send("Failed to fetch sessions");
@@ -207,7 +231,7 @@ app.get("/api/art", async (req, res) => {
         const u = new URL(thumb);
         u.searchParams.delete("X-Plex-Token");
         keyStr = u.toString();
-        targetUrl = thumb;
+        targetUrl = u.toString();
       } else {
         const base = config.PLEX_URL.replace(/\/$/, "");
         keyStr = `${base}${thumb}`;
@@ -259,9 +283,11 @@ app.get("/api/art", async (req, res) => {
 
     // Miss: fetch from Plex and cache when enabled
     CACHE_MISSES++;
-    const sep = targetUrl.includes("?") ? "&" : "?";
-    const fetchUrl = `${targetUrl}${sep}X-Plex-Token=${config.PLEX_TOKEN}`;
-    const proxied = await fetch(fetchUrl);
+    const proxied = await fetch(targetUrl, {
+      headers: shouldSendPlexAuth(targetUrl)
+        ? getPlexHeaders({ accept: "image/*,*/*" })
+        : { Accept: "image/*,*/*" },
+    });
     if (!proxied.ok) return res.status(502).send("Failed to fetch art");
     const contentType = proxied.headers.get("content-type") || "image/jpeg";
     const buffer = Buffer.from(await proxied.arrayBuffer());

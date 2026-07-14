@@ -10,6 +10,23 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+const LOG_LEVELS = { silent: 0, error: 1, warn: 2, info: 3, debug: 4 };
+const DEFAULT_LOG_LEVEL = "info";
+
+function getLogLevel() {
+  const configured = String(config?.LOG_LEVEL || DEFAULT_LOG_LEVEL).toLowerCase();
+  return Object.hasOwn(LOG_LEVELS, configured) ? configured : DEFAULT_LOG_LEVEL;
+}
+
+function log(level, message, details) {
+  if (LOG_LEVELS[level] > LOG_LEVELS[getLogLevel()]) return;
+  const prefix = `[${new Date().toISOString()}] ${level.toUpperCase()} ${message}`;
+  const output = details === undefined ? prefix : `${prefix} ${JSON.stringify(details)}`;
+  if (level === "error") console.error(output);
+  else if (level === "warn") console.warn(output);
+  else console.log(output);
+}
+
 // Image cache configuration (top-level so it's initialized once)
 const CACHE_DIR = path.resolve(__dirname, "..", "cache", "art");
 const CACHE_TTL = parseInt(
@@ -86,7 +103,7 @@ async function cleanupCache() {
       }
     }
   } catch (err) {
-    console.warn("Cache cleanup error", err);
+    log("warn", "Cache cleanup failed", { error: err.message });
   }
   LAST_CLEANUP = Date.now();
 }
@@ -111,9 +128,13 @@ function loadConfig() {
     const parsed = JSON.parse(raw);
     config = parsed || {};
     configVersion = crypto.createHash("sha256").update(raw).digest("hex");
-    console.log("Loaded server config from", cfgPath);
+    log("info", "Loaded server config", {
+      path: cfgPath,
+      logLevel: getLogLevel(),
+      plexUrl: config.PLEX_URL || null,
+    });
   } catch (err) {
-    console.warn("Failed to load server config:", err.message);
+    log("error", "Failed to load server config", { error: err.message, path: cfgPath });
   }
 }
 
@@ -122,11 +143,11 @@ function ensureFreshConfig() {
     const raw = fs.readFileSync(cfgPath, "utf8");
     const nextVersion = crypto.createHash("sha256").update(raw).digest("hex");
     if (nextVersion !== configVersion) {
-      console.log("plex.config.json changed — reloading config");
+      log("info", "Configuration changed; reloading");
       loadConfig();
     }
   } catch (err) {
-    console.warn("Failed to read server config:", err.message);
+    log("warn", "Failed to read server config", { error: err.message });
   }
 }
 
@@ -157,12 +178,12 @@ try {
   fs.watchFile(cfgPath, { interval: 1000 }, (curr, prev) => {
     // mtime changed
     if (curr.mtimeMs !== prev.mtimeMs) {
-      console.log("plex.config.json changed — reloading config");
+      log("info", "Configuration file changed; reloading");
       loadConfig();
     }
   });
 } catch (err) {
-  console.warn("Failed to watch config file for changes:", err.message);
+  log("warn", "Failed to watch config file", { error: err.message });
 }
 
 // Serve built frontend
@@ -183,6 +204,7 @@ app.get("/api/config", (req, res) => {
     SHOW_MEDIAINFO: publicCfg.SHOW_MEDIAINFO,
     SHOW_CLIENTINFO: publicCfg.SHOW_CLIENTINFO,
     LOW_POWER_MODE: publicCfg.LOW_POWER_MODE,
+    LOG_LEVEL: getLogLevel(),
     ARTIST_DISPLAY: publicCfg.ARTIST_DISPLAY,
     PLAYERS: publicCfg.PLAYERS || [],
     USERS: publicCfg.USERS || [],
@@ -194,21 +216,41 @@ app.get("/api/config", (req, res) => {
 app.get("/api/sessions", async (req, res) => {
   ensureFreshConfig();
   if (!config || !config.PLEX_URL || !config.PLEX_TOKEN) {
+    log("error", "Cannot connect to Plex: incomplete configuration", {
+      hasUrl: Boolean(config?.PLEX_URL),
+      hasToken: Boolean(config?.PLEX_TOKEN),
+    });
     return res.status(500).send("Plex config not available");
   }
+  const startedAt = Date.now();
   try {
     const url = `${config.PLEX_URL.replace(/\/$/, "")}/status/sessions`;
+    log("debug", "Requesting Plex sessions", { url });
     const proxied = await fetch(url, {
       headers: getPlexHeaders(),
     });
-    if (!proxied.ok) return res.status(502).send("Failed to fetch sessions");
+    if (!proxied.ok) {
+      log("warn", "Plex sessions request failed", {
+        status: proxied.status,
+        durationMs: Date.now() - startedAt,
+      });
+      return res.status(502).send("Failed to fetch sessions");
+    }
 
     const contentType =
       proxied.headers.get("content-type") || "application/json";
     const text = await proxied.text();
+    log("debug", "Plex sessions request succeeded", {
+      status: proxied.status,
+      durationMs: Date.now() - startedAt,
+      bytes: Buffer.byteLength(text),
+    });
     res.type(contentType).send(text);
   } catch (err) {
-    console.error("Error proxying sessions:", err);
+    log("error", "Error connecting to Plex sessions", {
+      error: err.message,
+      durationMs: Date.now() - startedAt,
+    });
     res.status(502).send("Failed to fetch sessions");
   }
 });
@@ -218,8 +260,10 @@ app.get("/api/art", async (req, res) => {
   ensureFreshConfig();
   const thumb = req.query.thumb;
   if (!thumb) return res.status(400).send("Missing thumb");
-  if (!config || !config.PLEX_URL || !config.PLEX_TOKEN)
+  if (!config || !config.PLEX_URL || !config.PLEX_TOKEN) {
+    log("error", "Cannot fetch artwork: incomplete Plex configuration");
     return res.status(500).send("Plex config not available");
+  }
   CACHE_REQUESTS++;
 
   try {
@@ -277,7 +321,7 @@ app.get("/api/art", async (req, res) => {
           }
         }
       } catch (err) {
-        console.warn("Cache read error", err);
+        log("warn", "Cache read failed", { error: err.message });
       }
     }
 
@@ -288,7 +332,10 @@ app.get("/api/art", async (req, res) => {
         ? getPlexHeaders({ accept: "image/*,*/*" })
         : { Accept: "image/*,*/*" },
     });
-    if (!proxied.ok) return res.status(502).send("Failed to fetch art");
+    if (!proxied.ok) {
+      log("warn", "Plex artwork request failed", { status: proxied.status });
+      return res.status(502).send("Failed to fetch art");
+    }
     const contentType = proxied.headers.get("content-type") || "image/jpeg";
     const buffer = Buffer.from(await proxied.arrayBuffer());
 
@@ -309,7 +356,7 @@ app.get("/api/art", async (req, res) => {
     );
     res.send(buffer);
   } catch (err) {
-    console.error("Error proxying art:", err);
+    log("error", "Error fetching artwork from Plex", { error: err.message });
     res.status(502).send("Failed to fetch art");
   }
 });
@@ -410,5 +457,5 @@ app.get("/{*splat}", (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`Server listening on port ${PORT}`);
+  log("info", "Server listening", { port: PORT, logLevel: getLogLevel() });
 });

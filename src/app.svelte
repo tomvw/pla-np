@@ -18,6 +18,17 @@
   let configLoaded = $state(false);
   let configVersion = $state(null);
   let pageVisible = $state(true);
+  let LOG_LEVEL = $state("info");
+  const LOG_LEVELS = { silent: 0, error: 1, warn: 2, info: 3, debug: 4 };
+
+  function log(level, message, details) {
+    if (LOG_LEVELS[level] > LOG_LEVELS[LOG_LEVEL]) return;
+    const prefix = `[${new Date().toISOString()}] ${level.toUpperCase()} ${message}`;
+    const output = details === undefined ? prefix : `${prefix} ${JSON.stringify(details)}`;
+    if (level === "error") console.error(output);
+    else if (level === "warn") console.warn(output);
+    else console.log(output);
+  }
 
   let ALLOWED_PLAYERS = [];
   let ALLOWED_USERS = [];
@@ -256,6 +267,9 @@
 
       config = nextConfig;
       configVersion = nextVersion;
+      LOG_LEVEL = Object.hasOwn(LOG_LEVELS, String(config.LOG_LEVEL).toLowerCase())
+        ? String(config.LOG_LEVEL).toLowerCase()
+        : "info";
 
       // Normalize allowed lists to lowercase trimmed strings for robust matching
       ALLOWED_PLAYERS = (config.PLAYERS || [])
@@ -300,17 +314,29 @@
           : Boolean(config.LOW_POWER_MODE);
 
       configLoaded = true;
+      log("info", "Loaded runtime config", {
+        logLevel: LOG_LEVEL,
+        filters: {
+          players: ALLOWED_PLAYERS.length,
+          users: ALLOWED_USERS.length,
+          libraries: ALLOWED_LIBRARIES.length,
+        },
+      });
     } catch (err) {
-      console.error("Failed to load runtime config", err);
+      log("error", "Failed to load runtime config", { error: err.message });
     }
   }
 
   // Fetch Plex now playing sessions
   async function fetchNowPlaying() {
     if (!configLoaded) return;
+    const startedAt = Date.now();
     try {
       const res = await fetch("/api/sessions");
-      if (!res.ok) throw new Error("Failed to load sessions");
+      if (!res.ok) {
+        log("warn", "Plex sessions request failed", { status: res.status });
+        throw new Error(`Failed to load sessions (${res.status})`);
+      }
 
       let rawNodes = [];
       const contentType = res.headers.get("content-type") || "";
@@ -331,27 +357,30 @@
 
       // Filter by allowed players if config is set
       // Apply filters in a single pass (AND semantics)
+      const beforeFiltering = newTracks.length;
       if (
         ALLOWED_PLAYERS.length ||
         ALLOWED_USERS.length ||
         ALLOWED_LIBRARIES.length
       ) {
         newTracks = newTracks.filter((track) => {
-          const p = String(track.player || "")
-            .toLowerCase()
-            .trim();
-          const u = String(track.user || "")
-            .toLowerCase()
-            .trim();
-          const l = String(track.library || "")
-            .toLowerCase()
-            .trim();
-          if (ALLOWED_PLAYERS.length && !ALLOWED_PLAYERS.includes(p))
+          try {
+            const p = String(track.player || "").toLowerCase().trim();
+            const u = String(track.user || "").toLowerCase().trim();
+            const l = String(track.library || "").toLowerCase().trim();
+            if (ALLOWED_PLAYERS.length && !ALLOWED_PLAYERS.includes(p)) return false;
+            if (ALLOWED_USERS.length && !ALLOWED_USERS.includes(u)) return false;
+            if (ALLOWED_LIBRARIES.length && !ALLOWED_LIBRARIES.includes(l)) return false;
+            return true;
+          } catch (error) {
+            log("error", "Failed to apply session filters", { error: error.message });
             return false;
-          if (ALLOWED_USERS.length && !ALLOWED_USERS.includes(u)) return false;
-          if (ALLOWED_LIBRARIES.length && !ALLOWED_LIBRARIES.includes(l))
-            return false;
-          return true;
+          }
+        });
+        log("debug", "Applied session filters", {
+          received: beforeFiltering,
+          included: newTracks.length,
+          excluded: beforeFiltering - newTracks.length,
         });
       }
 
@@ -435,8 +464,15 @@
           activeIndex = next;
         }
       }
+      log("debug", "Loaded Plex sessions", {
+        sessions: merged.length,
+        durationMs: Date.now() - startedAt,
+      });
     } catch (err) {
-      console.error("Failed to fetch Plex sessions", err);
+      log("error", "Failed to fetch Plex sessions", {
+        error: err.message,
+        durationMs: Date.now() - startedAt,
+      });
     }
   }
 

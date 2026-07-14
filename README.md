@@ -75,6 +75,7 @@ Example `plex.config.json`:
 {
   "PLEX_URL": "http://your.plex.url",
   "PLEX_TOKEN": "your-plex-token",
+  "LOG_LEVEL": "info",
   "PLAYERS": ["raspberrypi", "android"],
   "USERS": ["bob", "jane"],
   "LIBRARIES": ["music", "chiptunes"],
@@ -92,6 +93,7 @@ Example `plex.config.json`:
 | :-- | :-- | :-- |
 | `PLEX_URL` | `"http://your.plex.url"` | URL of your Plex instance. If Plex uses HTTPS with a self-signed certificate, you may need to add that certificate to the container or runtime trust store. |
 | `PLEX_TOKEN` | `"your-plex-token"` | Plex token. See [Plex's token guide](https://support.plex.tv/articles/204059436-finding-an-authentication-token-x-plex-token/). |
+| `LOG_LEVEL` | `"silent"`, `"error"`, `"warn"`, `"info"`, or `"debug"` | Controls server and browser logging. Defaults to `"info"`; use `"debug"` for Plex request and filtering details. |
 | `PLAYERS` | `["raspberrypi", "android"]` or `[]` | List of players to include, or empty for no filtering |
 | `USERS` | `["bob", "jane"]` or `[]` | List of users to include, or empty for no filtering |
 | `LIBRARIES` | `["music", "chiptunes"]` or `[]` | List of libraries to include, or empty for no filtering |

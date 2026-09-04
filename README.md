@@ -145,7 +145,43 @@ Clear the cache and reset the counters:
 curl -X POST -H "Authorization: Bearer your-cache-admin-token" "http://localhost:3000/api/cache-clear?reset=true"
 ```
 
-Optional server environment variables include `PLEX_REQUEST_TIMEOUT_MS`, `ART_MAX_BYTES`, `ART_CACHE_TTL_SECONDS`, `ART_CACHE_MAX_BYTES`, and `CACHE_ADMIN_TOKEN`.
+## Optional server environment variables
+
+These variables are read when the Node server starts. Restart the server after changing them. Values must be positive integers where noted; invalid values fall back to the defaults.
+
+| Variable | Default | Description |
+| :-- | --: | :-- |
+| `PORT` | `3000` | TCP port on which the application listens. |
+| `PLEX_REQUEST_TIMEOUT_MS` | `10000` | Maximum time, in milliseconds, to wait for a Plex sessions or artwork request. |
+| `ART_MAX_BYTES` | `10485760` (10 MiB) | Maximum size of one artwork response. Larger responses are rejected before being cached. |
+| `ART_CACHE_TTL_SECONDS` | `86400` (24 hours) | How long a cached artwork item remains valid. Expired items are removed during cache reads or hourly cleanup. |
+| `ART_CACHE_MAX_BYTES` | `209715200` (200 MiB) | Maximum total size of the artwork cache. The oldest items are removed during cleanup when this limit is exceeded. |
+| `CACHE_ADMIN_TOKEN` | unset | Enables and protects the cache administration endpoints. |
+
+### `CACHE_ADMIN_TOKEN`
+
+Cache administration is disabled when `CACHE_ADMIN_TOKEN` is unset. In that state, `/api/cache-stats` and `/api/cache-clear` return `404`.
+
+When it is configured, use a long, randomly generated secret and send it with every cache administration request as either a Bearer token or the `X-Cache-Admin-Token` header:
+
+```bash
+export CACHE_ADMIN_TOKEN="replace-with-a-long-random-secret"
+npm start
+
+curl -H "Authorization: Bearer $CACHE_ADMIN_TOKEN" http://localhost:3000/api/cache-stats
+curl -X POST -H "Authorization: Bearer $CACHE_ADMIN_TOKEN" http://localhost:3000/api/cache-clear
+```
+
+`/api/cache-clear` permanently removes cached artwork, so protect this token like a password. Do not put it in the Plex JSON configuration, frontend code, URLs, or publicly accessible Docker images. If the app is accessed over a network, use HTTPS or keep it behind a trusted reverse proxy; otherwise the header can be intercepted.
+
+For Docker Compose, pass it through the environment rather than storing it in the image:
+
+```yaml
+services:
+  pla-np:
+    environment:
+      CACHE_ADMIN_TOKEN: ${CACHE_ADMIN_TOKEN}
+```
 
 ## Screenshots
 

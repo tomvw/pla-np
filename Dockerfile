@@ -5,7 +5,7 @@ FROM node:26.8.1-alpine AS node-base
 FROM node-base AS node-runtime
 
 RUN cp /usr/local/bin/node /tmp/node \
-  && apk add --no-cache binutils=2.44-r3 \
+  && apk add --no-cache binutils \
   && strip --strip-all /tmp/node
 
 # --- Build stage ---

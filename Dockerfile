@@ -1,3 +1,5 @@
+# syntax=docker/dockerfile:1
+
 # --- Base Node stage ---
 FROM node:26.8.1-alpine AS node-base
 
@@ -14,7 +16,8 @@ FROM node-base AS build
 WORKDIR /app
 
 COPY package*.json ./
-RUN npm ci && npm cache clean --force
+RUN --mount=type=cache,target=/root/.npm \
+    npm ci --no-audit --no-fund
 
 COPY index.html svelte.config.js vite.config.js jsconfig.json ./
 COPY src ./src
@@ -29,8 +32,8 @@ WORKDIR /app
 
 # Install production dependencies
 COPY package*.json ./
-RUN npm ci --omit=dev --omit=optional --ignore-scripts --no-audit --no-fund \
-  && npm cache clean --force
+RUN --mount=type=cache,target=/root/.npm \
+    npm ci --omit=dev --omit=optional --ignore-scripts --no-audit --no-fund
 
 # --- Minimal runtime stage ---
 FROM alpine:3.22 AS runtime

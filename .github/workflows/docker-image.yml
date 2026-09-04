@@ -15,6 +15,10 @@ jobs:
 
   build-and-push:
 
+    # Dependabot updates are validated by the regular dependency checks, but
+    # should not trigger a Docker build or registry push for every PR.
+    if: github.event_name != 'pull_request' || github.event.pull_request.user.login != 'dependabot[bot]'
+
     runs-on: ubuntu-latest
 
     permissions:

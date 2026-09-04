@@ -3,15 +3,18 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import crypto from "crypto";
+import { LOG_LEVELS, parsePositiveInteger, validateConfig } from "./config.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = parsePositiveInteger(process.env.PORT, 3000);
 
-const LOG_LEVELS = { silent: 0, error: 1, warn: 2, info: 3, debug: 4 };
 const DEFAULT_LOG_LEVEL = "info";
+const REQUEST_TIMEOUT_MS = parsePositiveInteger(process.env.PLEX_REQUEST_TIMEOUT_MS, 10000);
+const ART_MAX_BYTES = parsePositiveInteger(process.env.ART_MAX_BYTES, 10 * 1024 * 1024);
+const CACHE_ADMIN_TOKEN = process.env.CACHE_ADMIN_TOKEN || "";
 
 function getLogLevel() {
   const configured = String(config?.LOG_LEVEL || DEFAULT_LOG_LEVEL).toLowerCase();
@@ -29,21 +32,17 @@ function log(level, message, details) {
 
 // Image cache configuration (top-level so it's initialized once)
 const CACHE_DIR = path.resolve(__dirname, "..", "cache", "art");
-const CACHE_TTL = parseInt(
-  process.env.ART_CACHE_TTL_SECONDS || String(24 * 3600),
-  10,
-); // seconds
-const CACHE_MAX_BYTES = parseInt(
-  process.env.ART_CACHE_MAX_BYTES || String(200 * 1024 * 1024),
-  10,
-); // default 200MB
+const CACHE_TTL = parsePositiveInteger(process.env.ART_CACHE_TTL_SECONDS, 24 * 3600); // seconds
+const CACHE_MAX_BYTES = parsePositiveInteger(process.env.ART_CACHE_MAX_BYTES, 200 * 1024 * 1024);
 let CACHE_HITS = 0;
 let CACHE_MISSES = 0;
 let CACHE_REQUESTS = 0;
 let LAST_CLEANUP = null;
 try {
   fs.mkdirSync(CACHE_DIR, { recursive: true });
-} catch (e) {}
+} catch (e) {
+  log("error", "Failed to create artwork cache directory", { error: e.message });
+}
 
 // Cache cleanup function (removes expired files and enforces max size)
 async function cleanupCache() {
@@ -114,6 +113,7 @@ cleanupCache().catch(() => {});
 // Load config from repo config/plex.config.json (kept out of frontend)
 let config = {};
 let configVersion = "";
+let configErrors = [];
 const cfgPath = path.resolve(__dirname, "..", "config", "plex.config.json");
 
 function isImageCacheEnabled() {
@@ -127,11 +127,13 @@ function loadConfig() {
     const raw = fs.readFileSync(cfgPath, "utf8");
     const parsed = JSON.parse(raw);
     config = parsed || {};
+    configErrors = validateConfig(config);
     configVersion = crypto.createHash("sha256").update(raw).digest("hex");
     log("info", "Loaded server config", {
       path: cfgPath,
       logLevel: getLogLevel(),
       plexUrl: config.PLEX_URL || null,
+      configErrors,
     });
   } catch (err) {
     log("error", "Failed to load server config", { error: err.message, path: cfgPath });
@@ -169,6 +171,59 @@ function shouldSendPlexAuth(targetUrl) {
   }
 }
 
+function resolveArtworkUrl(thumb) {
+  if (typeof thumb !== "string" || !thumb.trim()) throw new Error("Missing thumb");
+  const plexUrl = new URL(config.PLEX_URL);
+  let target;
+  if (thumb.startsWith("/") && !thumb.startsWith("//")) {
+    target = new URL(thumb, plexUrl);
+  } else {
+    target = new URL(thumb);
+  }
+  if (target.origin !== plexUrl.origin) throw new Error("Artwork URL must belong to Plex");
+  target.searchParams.delete("X-Plex-Token");
+  return target;
+}
+
+async function fetchWithTimeout(url, options = {}) {
+  return fetch(url, { ...options, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
+}
+
+async function readLimitedBody(response, maxBytes) {
+  const declared = Number(response.headers.get("content-length"));
+  if (Number.isFinite(declared) && declared > maxBytes) throw new Error("Artwork response is too large");
+  const reader = response.body?.getReader();
+  if (!reader) {
+    const buffer = Buffer.from(await response.arrayBuffer());
+    if (buffer.length > maxBytes) throw new Error("Artwork response is too large");
+    return buffer;
+  }
+  const chunks = [];
+  let total = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > maxBytes) throw new Error("Artwork response is too large");
+      chunks.push(Buffer.from(value));
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  return Buffer.concat(chunks);
+}
+
+function requireCacheAdmin(req, res, next) {
+  if (!CACHE_ADMIN_TOKEN) return res.status(404).send("Not found");
+  const authorization = req.get("authorization") || "";
+  const token = authorization.startsWith("Bearer ")
+    ? authorization.slice("Bearer ".length)
+    : req.get("x-cache-admin-token");
+  if (token !== CACHE_ADMIN_TOKEN) return res.status(401).send("Unauthorized");
+  next();
+}
+
 // initial load
 loadConfig();
 
@@ -195,10 +250,10 @@ if (fs.existsSync(distPath)) {
 // API: return public config (without token)
 app.get("/api/config", (req, res) => {
   ensureFreshConfig();
+  if (configErrors.length) return res.status(503).json({ error: "Invalid Plex configuration", details: configErrors });
   const { PLEX_TOKEN, ...publicCfg } = config || {};
   res.json({
     CONFIG_VERSION: publicCfg.CONFIG_VERSION || configVersion,
-    PLEX_URL: publicCfg.PLEX_URL,
     SHOW_USERNAME: publicCfg.SHOW_USERNAME,
     SHOW_PROGRESS: publicCfg.SHOW_PROGRESS,
     SHOW_MEDIAINFO: publicCfg.SHOW_MEDIAINFO,
@@ -215,7 +270,7 @@ app.get("/api/config", (req, res) => {
 // API: proxy sessions from Plex, keeping token server-side
 app.get("/api/sessions", async (req, res) => {
   ensureFreshConfig();
-  if (!config || !config.PLEX_URL || !config.PLEX_TOKEN) {
+  if (configErrors.length || !config || !config.PLEX_URL || !config.PLEX_TOKEN) {
     log("error", "Cannot connect to Plex: incomplete configuration", {
       hasUrl: Boolean(config?.PLEX_URL),
       hasToken: Boolean(config?.PLEX_TOKEN),
@@ -226,7 +281,7 @@ app.get("/api/sessions", async (req, res) => {
   try {
     const url = `${config.PLEX_URL.replace(/\/$/, "")}/status/sessions`;
     log("debug", "Requesting Plex sessions", { url });
-    const proxied = await fetch(url, {
+    const proxied = await fetchWithTimeout(url, {
       headers: getPlexHeaders(),
     });
     if (!proxied.ok) {
@@ -260,7 +315,7 @@ app.get("/api/art", async (req, res) => {
   ensureFreshConfig();
   const thumb = req.query.thumb;
   if (!thumb) return res.status(400).send("Missing thumb");
-  if (!config || !config.PLEX_URL || !config.PLEX_TOKEN) {
+  if (configErrors.length || !config || !config.PLEX_URL || !config.PLEX_TOKEN) {
     log("error", "Cannot fetch artwork: incomplete Plex configuration");
     return res.status(500).send("Plex config not available");
   }
@@ -268,25 +323,14 @@ app.get("/api/art", async (req, res) => {
 
   try {
     // Build target URL and a cache key that excludes the token
-    let targetUrl;
-    let keyStr;
+    let target;
     try {
-      if (thumb.startsWith("http://") || thumb.startsWith("https://")) {
-        const u = new URL(thumb);
-        u.searchParams.delete("X-Plex-Token");
-        keyStr = u.toString();
-        targetUrl = u.toString();
-      } else {
-        const base = config.PLEX_URL.replace(/\/$/, "");
-        keyStr = `${base}${thumb}`;
-        targetUrl = `${base}${thumb}`;
-      }
+      target = resolveArtworkUrl(thumb);
     } catch (err) {
-      keyStr = thumb;
-      targetUrl = thumb.startsWith("/")
-        ? `${config.PLEX_URL.replace(/\/$/, "")}${thumb}`
-        : thumb;
+      return res.status(400).send(err.message);
     }
+    const targetUrl = target.toString();
+    const keyStr = targetUrl;
 
     const hash = crypto.createHash("sha256").update(keyStr).digest("hex");
     const dataPath = path.join(CACHE_DIR, hash);
@@ -327,7 +371,7 @@ app.get("/api/art", async (req, res) => {
 
     // Miss: fetch from Plex and cache when enabled
     CACHE_MISSES++;
-    const proxied = await fetch(targetUrl, {
+    const proxied = await fetchWithTimeout(targetUrl, {
       headers: shouldSendPlexAuth(targetUrl)
         ? getPlexHeaders({ accept: "image/*,*/*" })
         : { Accept: "image/*,*/*" },
@@ -337,14 +381,27 @@ app.get("/api/art", async (req, res) => {
       return res.status(502).send("Failed to fetch art");
     }
     const contentType = proxied.headers.get("content-type") || "image/jpeg";
-    const buffer = Buffer.from(await proxied.arrayBuffer());
+    if (!contentType.toLowerCase().startsWith("image/")) {
+      return res.status(502).send("Plex returned a non-image artwork response");
+    }
+    const buffer = await readLimitedBody(proxied, ART_MAX_BYTES);
 
     if (cacheEnabled) {
-      // atomic write
-      await fs.promises.writeFile(dataPath + ".tmp", buffer);
-      await fs.promises.rename(dataPath + ".tmp", dataPath);
+      const tempSuffix = `${process.pid}.${crypto.randomUUID()}`;
+      const dataTempPath = `${dataPath}.${tempSuffix}.tmp`;
+      const metaTempPath = `${metaPath}.${tempSuffix}.tmp`;
       const meta = { timestamp: Date.now(), contentType, size: buffer.length };
-      await fs.promises.writeFile(metaPath, JSON.stringify(meta));
+      try {
+        await fs.promises.writeFile(dataTempPath, buffer);
+        await fs.promises.rename(dataTempPath, dataPath);
+        await fs.promises.writeFile(metaTempPath, JSON.stringify(meta));
+        await fs.promises.rename(metaTempPath, metaPath);
+      } finally {
+        await Promise.all([
+          fs.promises.unlink(dataTempPath).catch(() => {}),
+          fs.promises.unlink(metaTempPath).catch(() => {}),
+        ]);
+      }
     }
 
     res.set("content-type", contentType);
@@ -362,7 +419,7 @@ app.get("/api/art", async (req, res) => {
 });
 
 // Cache stats endpoint
-app.get("/api/cache-stats", async (req, res) => {
+app.get("/api/cache-stats", requireCacheAdmin, async (req, res) => {
   try {
     const files = await fs.promises.readdir(CACHE_DIR);
     let total = 0;
@@ -416,7 +473,7 @@ app.get("/api/cache-stats", async (req, res) => {
 });
 
 // Clear the cache (POST). Optional query `reset=true` to reset hit/miss/request counters.
-app.post("/api/cache-clear", async (req, res) => {
+app.post("/api/cache-clear", requireCacheAdmin, async (req, res) => {
   try {
     const files = await fs.promises.readdir(CACHE_DIR);
     let freed = 0;
@@ -446,6 +503,12 @@ app.post("/api/cache-clear", async (req, res) => {
   }
 });
 
+app.get("/api/health", (req, res) => {
+  ensureFreshConfig();
+  if (configErrors.length) return res.status(503).json({ status: "unhealthy", details: configErrors });
+  res.json({ status: "ok" });
+});
+
 // Fallback to index.html for SPA routes (but don't catch API routes).
 // Express 5 requires named wildcards; `/{*splat}` also matches `/`.
 app.get("/{*splat}", (req, res) => {
@@ -456,6 +519,10 @@ app.get("/{*splat}", (req, res) => {
   res.status(404).send("Not found");
 });
 
-app.listen(PORT, () => {
+if (process.argv[1] && path.resolve(process.argv[1]) === __filename) {
+  app.listen(PORT, () => {
   log("info", "Server listening", { port: PORT, logLevel: getLogLevel() });
-});
+  });
+}
+
+export { app, resolveArtworkUrl, readLimitedBody };

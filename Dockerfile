@@ -1,11 +1,11 @@
 # --- Base Node stage ---
-FROM node:25.9.0-alpine AS node-base
+FROM node:26.8.1-alpine AS node-base
 
 # --- Stripped Node runtime stage ---
 FROM node-base AS node-runtime
 
 RUN cp /usr/local/bin/node /tmp/node \
-  && apk add --no-cache binutils \
+  && apk add --no-cache binutils=2.44-r3 \
   && strip --strip-all /tmp/node
 
 # --- Build stage ---
@@ -56,4 +56,8 @@ COPY --chown=nodejs:nodejs server ./server
 USER nodejs
 
 EXPOSE 3000
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD ["node", "-e", "fetch('http://127.0.0.1:3000/api/health').then((response) => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))"]
+
 CMD ["node", "server/index.js"]

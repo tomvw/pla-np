@@ -11,6 +11,8 @@
   let progressTimer;
   let rotationTimer;
   let refreshTimer;
+  let sessionsController = null;
+  let sessionsRequestId = 0;
 
   let sessions = $state([]);
   let activeIndex = $state(0);
@@ -272,13 +274,13 @@
         : "info";
 
       // Normalize allowed lists to lowercase trimmed strings for robust matching
-      ALLOWED_PLAYERS = (config.PLAYERS || [])
+      ALLOWED_PLAYERS = (Array.isArray(config.PLAYERS) ? config.PLAYERS : [])
         .map((p) => String(p).toLowerCase().trim())
         .filter(Boolean);
-      ALLOWED_USERS = (config.USERS || [])
+      ALLOWED_USERS = (Array.isArray(config.USERS) ? config.USERS : [])
         .map((u) => String(u).toLowerCase().trim())
         .filter(Boolean);
-      ALLOWED_LIBRARIES = (config.LIBRARIES || [])
+      ALLOWED_LIBRARIES = (Array.isArray(config.LIBRARIES) ? config.LIBRARIES : [])
         .map((l) => String(l).toLowerCase().trim())
         .filter(Boolean);
       // ARTIST_DISPLAY determines how to show artist info: 'track' = track artist only, 'album' = album artist only, 'both' = "album artist — track artist"
@@ -330,9 +332,12 @@
   // Fetch Plex now playing sessions
   async function fetchNowPlaying() {
     if (!configLoaded) return;
+    sessionsController?.abort();
+    sessionsController = new AbortController();
+    const requestId = ++sessionsRequestId;
     const startedAt = Date.now();
     try {
-      const res = await fetch("/api/sessions");
+      const res = await fetch("/api/sessions", { signal: sessionsController.signal });
       if (!res.ok) {
         log("warn", "Plex sessions request failed", { status: res.status });
         throw new Error(`Failed to load sessions (${res.status})`);
@@ -351,6 +356,7 @@
       }
 
       const fetchedAt = Date.now();
+      if (requestId !== sessionsRequestId) return;
       let newTracks = rawNodes.map((track) =>
         normalizeSession(track, fetchedAt),
       );
@@ -469,6 +475,7 @@
         durationMs: Date.now() - startedAt,
       });
     } catch (err) {
+      if (err.name === "AbortError") return;
       log("error", "Failed to fetch Plex sessions", {
         error: err.message,
         durationMs: Date.now() - startedAt,
@@ -600,6 +607,7 @@
   });
 
   onDestroy(() => {
+    sessionsController?.abort();
     clearInterval(progressTimer);
     clearInterval(rotationTimer);
     clearInterval(refreshTimer);

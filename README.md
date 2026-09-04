@@ -46,8 +46,8 @@ services:
 
 Requirements:
 
-- Node `25.9.0`
-- npm `11.12.1`
+- Node `26.8.1`
+- npm `11.19.0`
 
 If you use `nvm`:
 
@@ -125,6 +125,8 @@ http://localhost:3000/api/cache-stats
 
 The response includes cache status, counters, hit rate, file count, total size, and the largest cached items.
 
+Cache administration is disabled unless `CACHE_ADMIN_TOKEN` is set on the server. When enabled, send it as `Authorization: Bearer <token>` (or `X-Cache-Admin-Token`).
+
 Clear the cache:
 
 ```text
@@ -134,14 +136,16 @@ http://localhost:3000/api/cache-clear
 Example:
 
 ```bash
-curl -X POST http://localhost:3000/api/cache-clear
+curl -X POST -H "Authorization: Bearer your-cache-admin-token" http://localhost:3000/api/cache-clear
 ```
 
 Clear the cache and reset the counters:
 
 ```bash
-curl -X POST "http://localhost:3000/api/cache-clear?reset=true"
+curl -X POST -H "Authorization: Bearer your-cache-admin-token" "http://localhost:3000/api/cache-clear?reset=true"
 ```
+
+Optional server environment variables include `PLEX_REQUEST_TIMEOUT_MS`, `ART_MAX_BYTES`, `ART_CACHE_TTL_SECONDS`, `ART_CACHE_MAX_BYTES`, and `CACHE_ADMIN_TOKEN`.
 
 ## Screenshots
 

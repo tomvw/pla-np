@@ -1,13 +1,16 @@
 export function format(ms) {
-  const s = Math.floor(ms / 1000);
+  const safeMs = Number.isFinite(Number(ms)) ? Math.max(0, Number(ms)) : 0;
+  const s = Math.floor(safeMs / 1000);
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }
 
 export function getProgressPercent(session) {
-  if (!session?.duration) return 0;
+  const duration = Number(session?.duration);
+  const offset = Number(session?.localOffset);
+  if (!Number.isFinite(duration) || duration <= 0 || !Number.isFinite(offset)) return 0;
   return Math.max(
     0,
-    Math.min(100, (session.localOffset / session.duration) * 100),
+    Math.min(100, (offset / duration) * 100),
   );
 }
 

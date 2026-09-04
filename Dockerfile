@@ -36,7 +36,7 @@ RUN --mount=type=cache,target=/root/.npm \
     npm ci --omit=dev --omit=optional --ignore-scripts --no-audit --no-fund
 
 # --- Minimal runtime stage ---
-FROM alpine:3.22 AS runtime
+FROM alpine:3.24 AS runtime
 
 ENV NODE_ENV=production
 

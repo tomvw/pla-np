@@ -32,7 +32,10 @@ const RASTER_ART_CONTENT_TYPES = new Set([
   "image/png",
   "image/webp",
 ]);
-const MAX_ART_REDIRECTS = 3;
+const ALLOWED_ART_PATH_PREFIXES = [
+  "/library/metadata/",
+  "/photo/:/transcode",
+];
 
 function getLogLevel() {
   const configured = String(config?.LOG_LEVEL || DEFAULT_LOG_LEVEL).toLowerCase();
@@ -181,14 +184,6 @@ function getPlexHeaders({ accept = "application/json" } = {}) {
   };
 }
 
-function shouldSendPlexAuth(targetUrl) {
-  try {
-    return new URL(targetUrl).origin === new URL(config.PLEX_URL).origin;
-  } catch (err) {
-    return false;
-  }
-}
-
 function normalizedFilterValues(values) {
   return Array.isArray(values)
     ? values.map((value) => String(value).toLowerCase().trim()).filter(Boolean)
@@ -231,38 +226,25 @@ function filterSessionPayload(payload) {
   };
 }
 
-async function fetchArtworkWithSafeRedirects(url) {
-  let currentUrl = url;
-  for (let redirects = 0; redirects <= MAX_ART_REDIRECTS; redirects += 1) {
-    const response = await fetchWithTimeout(currentUrl, {
-      redirect: "manual",
-      headers: shouldSendPlexAuth(currentUrl)
-        ? getPlexHeaders({ accept: "image/*,*/*" })
-        : { Accept: "image/*,*/*" },
-    });
-
-    if (response.status < 300 || response.status >= 400) return response;
-    const location = response.headers.get("location");
-    if (!location) throw new Error("Artwork redirect has no location");
-    const redirectedUrl = new URL(location, currentUrl);
-    if (redirectedUrl.origin !== new URL(config.PLEX_URL).origin) {
-      throw new Error("Artwork redirect left Plex origin");
-    }
-    currentUrl = redirectedUrl.toString();
-  }
-  throw new Error("Too many artwork redirects");
-}
-
-function resolveArtworkUrl(thumb) {
+function resolveArtworkUrl(thumb, plexUrlValue = config.PLEX_URL) {
   if (typeof thumb !== "string" || !thumb.trim()) throw new Error("Missing thumb");
-  const plexUrl = new URL(config.PLEX_URL);
-  let target;
-  if (thumb.startsWith("/") && !thumb.startsWith("//")) {
-    target = new URL(thumb, plexUrl);
-  } else {
-    target = new URL(thumb);
+  if (!thumb.startsWith("/") || thumb.startsWith("//")) {
+    throw new Error("Artwork path must be relative");
   }
-  if (target.origin !== plexUrl.origin) throw new Error("Artwork URL must belong to Plex");
+  let rawPath;
+  try {
+    rawPath = decodeURIComponent(thumb.split(/[?#]/, 1)[0]);
+  } catch {
+    throw new Error("Artwork path is invalid");
+  }
+  if (rawPath.split("/").some((segment) => segment === "." || segment === "..")) {
+    throw new Error("Artwork path must not contain dot segments");
+  }
+  const plexUrl = new URL(plexUrlValue);
+  const target = new URL(thumb, plexUrl);
+  if (!ALLOWED_ART_PATH_PREFIXES.some((prefix) => target.pathname.startsWith(prefix))) {
+    throw new Error("Unsupported artwork path");
+  }
   target.searchParams.delete("X-Plex-Token");
   return target;
 }
@@ -469,7 +451,10 @@ app.get("/api/art", async (req, res) => {
 
     // Miss: fetch from Plex and cache when enabled
     CACHE_MISSES++;
-    const proxied = await fetchArtworkWithSafeRedirects(targetUrl);
+    const proxied = await fetchWithTimeout(targetUrl, {
+      redirect: "error",
+      headers: getPlexHeaders({ accept: "image/*,*/*" }),
+    });
     if (!proxied.ok) {
       log("warn", "Plex artwork request failed", { status: proxied.status });
       return res.status(502).send("Failed to fetch art");

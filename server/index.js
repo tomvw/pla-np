@@ -9,12 +9,30 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
+app.disable("x-powered-by");
+app.use((req, res, next) => {
+  res.set({
+    "Content-Security-Policy": "default-src 'self'; img-src 'self' data:; connect-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com",
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "no-referrer",
+    "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+    "X-Frame-Options": "DENY",
+  });
+  next();
+});
 const PORT = parsePositiveInteger(process.env.PORT, 3000);
 
 const DEFAULT_LOG_LEVEL = "info";
 const REQUEST_TIMEOUT_MS = parsePositiveInteger(process.env.PLEX_REQUEST_TIMEOUT_MS, 10000);
 const ART_MAX_BYTES = parsePositiveInteger(process.env.ART_MAX_BYTES, 10 * 1024 * 1024);
 const CACHE_ADMIN_TOKEN = process.env.CACHE_ADMIN_TOKEN || "";
+const RASTER_ART_CONTENT_TYPES = new Set([
+  "image/gif",
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+]);
+const MAX_ART_REDIRECTS = 3;
 
 function getLogLevel() {
   const configured = String(config?.LOG_LEVEL || DEFAULT_LOG_LEVEL).toLowerCase();
@@ -171,6 +189,70 @@ function shouldSendPlexAuth(targetUrl) {
   }
 }
 
+function normalizedFilterValues(values) {
+  return Array.isArray(values)
+    ? values.map((value) => String(value).toLowerCase().trim()).filter(Boolean)
+    : [];
+}
+
+function firstNestedValue(item, key) {
+  const value = item?.[key];
+  return Array.isArray(value) ? value[0] : value;
+}
+
+function sessionMatchesFilters(session) {
+  const players = normalizedFilterValues(config.PLAYERS);
+  const users = normalizedFilterValues(config.USERS);
+  const libraries = normalizedFilterValues(config.LIBRARIES);
+  const player = String(firstNestedValue(session?.Player, "title") || "").toLowerCase().trim();
+  const user = String(firstNestedValue(session?.User, "title") || "").toLowerCase().trim();
+  const library = String(session?.librarySectionTitle || "").toLowerCase().trim();
+
+  return (
+    (!players.length || players.includes(player)) &&
+    (!users.length || users.includes(user)) &&
+    (!libraries.length || libraries.includes(library))
+  );
+}
+
+function filterSessionPayload(payload) {
+  if (!payload || typeof payload !== "object" || !payload.MediaContainer) {
+    return payload;
+  }
+  const metadata = payload.MediaContainer.Metadata;
+  if (!Array.isArray(metadata)) return payload;
+
+  return {
+    ...payload,
+    MediaContainer: {
+      ...payload.MediaContainer,
+      Metadata: metadata.filter(sessionMatchesFilters),
+    },
+  };
+}
+
+async function fetchArtworkWithSafeRedirects(url) {
+  let currentUrl = url;
+  for (let redirects = 0; redirects <= MAX_ART_REDIRECTS; redirects += 1) {
+    const response = await fetchWithTimeout(currentUrl, {
+      redirect: "manual",
+      headers: shouldSendPlexAuth(currentUrl)
+        ? getPlexHeaders({ accept: "image/*,*/*" })
+        : { Accept: "image/*,*/*" },
+    });
+
+    if (response.status < 300 || response.status >= 400) return response;
+    const location = response.headers.get("location");
+    if (!location) throw new Error("Artwork redirect has no location");
+    const redirectedUrl = new URL(location, currentUrl);
+    if (redirectedUrl.origin !== new URL(config.PLEX_URL).origin) {
+      throw new Error("Artwork redirect left Plex origin");
+    }
+    currentUrl = redirectedUrl.toString();
+  }
+  throw new Error("Too many artwork redirects");
+}
+
 function resolveArtworkUrl(thumb) {
   if (typeof thumb !== "string" || !thumb.trim()) throw new Error("Missing thumb");
   const plexUrl = new URL(config.PLEX_URL);
@@ -292,15 +374,23 @@ app.get("/api/sessions", async (req, res) => {
       return res.status(502).send("Failed to fetch sessions");
     }
 
-    const contentType =
-      proxied.headers.get("content-type") || "application/json";
+    const contentType = proxied.headers.get("content-type") || "application/json";
     const text = await proxied.text();
+    let responseBody = text;
+    if (contentType.toLowerCase().includes("application/json")) {
+      try {
+        responseBody = JSON.stringify(filterSessionPayload(JSON.parse(text)));
+      } catch (err) {
+        log("warn", "Plex returned invalid JSON", { error: err.message });
+        return res.status(502).send("Plex returned invalid session data");
+      }
+    }
     log("debug", "Plex sessions request succeeded", {
       status: proxied.status,
       durationMs: Date.now() - startedAt,
       bytes: Buffer.byteLength(text),
     });
-    res.type(contentType).send(text);
+    res.type(contentType).send(responseBody);
   } catch (err) {
     log("error", "Error connecting to Plex sessions", {
       error: err.message,
@@ -345,11 +435,19 @@ app.get("/api/art", async (req, res) => {
           .catch(() => null);
         if (metaRaw) {
           const meta = JSON.parse(metaRaw);
-          if (Date.now() - (meta.timestamp || 0) <= CACHE_TTL * 1000) {
+          const cachedContentType = String(meta.contentType || "image/jpeg")
+            .split(";", 1)[0]
+            .trim()
+            .toLowerCase();
+          if (
+            RASTER_ART_CONTENT_TYPES.has(cachedContentType) &&
+            Date.now() - (meta.timestamp || 0) <= CACHE_TTL * 1000
+          ) {
             const stat = await fs.promises.stat(dataPath).catch(() => null);
             if (stat) {
               CACHE_HITS++;
-              res.set("content-type", meta.contentType || "image/jpeg");
+              res.set("content-type", cachedContentType);
+              res.set("content-disposition", "inline");
               res.set(
                 "cache-control",
                 `public, max-age=${Math.min(CACHE_TTL, 86400)}`,
@@ -371,17 +469,16 @@ app.get("/api/art", async (req, res) => {
 
     // Miss: fetch from Plex and cache when enabled
     CACHE_MISSES++;
-    const proxied = await fetchWithTimeout(targetUrl, {
-      headers: shouldSendPlexAuth(targetUrl)
-        ? getPlexHeaders({ accept: "image/*,*/*" })
-        : { Accept: "image/*,*/*" },
-    });
+    const proxied = await fetchArtworkWithSafeRedirects(targetUrl);
     if (!proxied.ok) {
       log("warn", "Plex artwork request failed", { status: proxied.status });
       return res.status(502).send("Failed to fetch art");
     }
-    const contentType = proxied.headers.get("content-type") || "image/jpeg";
-    if (!contentType.toLowerCase().startsWith("image/")) {
+    const contentType = (proxied.headers.get("content-type") || "image/jpeg")
+      .split(";", 1)[0]
+      .trim()
+      .toLowerCase();
+    if (!RASTER_ART_CONTENT_TYPES.has(contentType)) {
       return res.status(502).send("Plex returned a non-image artwork response");
     }
     const buffer = await readLimitedBody(proxied, ART_MAX_BYTES);
@@ -405,6 +502,7 @@ app.get("/api/art", async (req, res) => {
     }
 
     res.set("content-type", contentType);
+    res.set("content-disposition", "inline");
     res.set(
       "cache-control",
       cacheEnabled
@@ -525,4 +623,4 @@ if (process.argv[1] && path.resolve(process.argv[1]) === __filename) {
   });
 }
 
-export { app, resolveArtworkUrl, readLimitedBody };
+export { app, filterSessionPayload, resolveArtworkUrl, readLimitedBody };

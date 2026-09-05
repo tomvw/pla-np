@@ -67,6 +67,10 @@ You can create `config/plex.config.json` by copying `config/plex.config.json.exa
 
 The app will be available at `http://localhost:3000`.
 
+### Network exposure warning
+
+This app is designed for a trusted local network or VPN. The main API endpoints are intentionally unauthenticated and expose Plex now-playing metadata to anyone who can reach the app. Exposing the app directly to the public internet is at your own risk; use HTTPS and put it behind an authenticated reverse proxy or private access network if it must be reachable beyond your LAN. Do not expose the Node port directly without understanding this risk.
+
 ## Configuration
 
 Example `plex.config.json`:

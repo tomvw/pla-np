@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 # --- Base Node stage ---
-FROM node:26.8.1-alpine AS node-base
+FROM node:26.9.0-alpine AS node-base
 
 # --- Stripped Node runtime stage ---
 FROM node-base AS node-runtime

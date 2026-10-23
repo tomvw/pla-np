@@ -45,11 +45,13 @@ ENV NODE_ENV=production
 
 WORKDIR /app
 
+# Node 26 may require libatomic at runtime (especially on Alpine/musl).
+RUN apk add --no-cache ca-certificates libatomic
+
 # Copy only the Node runtime bits needed by the app. npm is intentionally omitted.
 COPY --from=node-runtime /tmp/node /usr/local/bin/node
 COPY --from=node-base /usr/lib/libstdc++.so.6 /usr/lib/libstdc++.so.6
 COPY --from=node-base /usr/lib/libgcc_s.so.1 /usr/lib/libgcc_s.so.1
-COPY --from=node-base /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 
 RUN addgroup -S nodejs && adduser -S nodejs -G nodejs \
   && mkdir -p cache/art config \

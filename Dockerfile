@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 # --- Base Node stage ---
-FROM node:26.12.1-alpine AS node-base
+FROM node:26.13.0-alpine AS node-base
 
 # Keep the system trust store current for outbound HTTPS validation.
 RUN apk add --no-cache ca-certificates
